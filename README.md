@@ -1,4 +1,4 @@
-# 画师排单台
+# 画了么
 
 一个适合小画师记录接稿、截稿、收入和来源的网页工具。
 
@@ -20,10 +20,16 @@
 - 本地存储：数据默认保存在浏览器 `localStorage`
 - 数据导入导出：支持 JSON 导入导出，支持 CSV 导出
 - 云端同步：接入 Supabase 后支持邮箱注册登录、验证邮箱、重发验证邮件、忘记密码和个人数据隔离
+- 推广首页：根路径是宣传页，工具页放在 `/app`
+- 意见反馈：首页自带匿名反馈表单，写入 Supabase `feedback` 表
+- 致谢与赞助：通过 `site-content.js` 维护爱发电链接、赞赏码和感谢名单
 
 ## 本地打开
 
-不开云端时，双击打开 [index.html](/Users/yuuki/codeproject/paidan/index.html) 就能用。
+不开云端时：
+
+- [index.html](/Users/yuuki/codeproject/paidan/index.html) 是宣传首页
+- [app/index.html](/Users/yuuki/codeproject/paidan/app/index.html) 是工具页
 
 如果你想本地起一个简单服务，也可以在当前目录执行：
 
@@ -48,6 +54,7 @@ python3 -m http.server 8000
 这会创建：
 
 - `commission_orders` 表
+- `feedback` 表
 - `updated_at` 自动更新时间触发器
 - 只允许用户操作自己数据的 RLS 策略
 
@@ -57,6 +64,14 @@ python3 -m http.server 8000
 - `fee_rate`
 
 这两个新字段分别用于异常流程和平台抽成 / 预计实得计算。
+
+反馈表会新增这些字段：
+
+- `nickname`
+- `contact`
+- `category`
+- `content`
+- `page_context`
 
 ### 3. 获取前端需要的两个值
 
@@ -79,13 +94,18 @@ Netlify 项目里添加：
 - `Site URL` 是你的 Netlify 正式地址
 - `Redirect URLs` 里至少包含
   - 你的 Netlify 正式地址
+  - 你的 Netlify 工具页地址，比如 `https://你的域名/app/`
   - 本地调试地址，比如 `http://localhost:8000`
 
 否则邮箱验证和重置密码链接回跳时，前端可能拿不到正确的认证上下文。
 
 ### 5. 部署
 
-这个仓库现在会在构建时把环境变量写进 `dist/env.js`，然后发布 `dist` 目录。
+这个仓库现在会在构建时把环境变量写进 `dist/env.js`，并发布一个多页面静态站：
+
+- `/` 宣传首页
+- `/app/` 工具页
+- `/privacy.html` 隐私说明
 
 ## 部署到 Netlify
 
@@ -113,6 +133,17 @@ Netlify 项目里添加：
 - 用户可以直接点“重发验证邮件”
 - 用户可以直接点“忘记密码”，收邮件后回到站点完成密码重置
 - 如果提示 `email rate limit exceeded`，说明认证邮件发得太频繁，被 Supabase 暂时限流了，等一会儿再发
+
+## 上线前还要改的静态内容
+
+正式推广前，建议先改一下 [site-content.js](/Users/yuuki/codeproject/paidan/site-content.js)：
+
+- `appName`
+- `sponsor.afdianUrl`
+- `sponsor.wechatQr`
+- `sponsor.alipayQr`
+- `betaThanks`
+- `supporterThanks`
 
 ## 后续可继续加的功能
 

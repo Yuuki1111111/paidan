@@ -3,325 +3,260 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>画师排单台</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <title>画了么 | 小画师接稿排单台</title>
+    <link rel="stylesheet" href="./landing.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <header class="hero">
-        <div class="hero-copy">
-          <p class="eyebrow">Commission Desk</p>
-          <h1>给小画师用的接稿排单台</h1>
-          <p class="hero-text">
-            不再靠 Excel 东拼西凑。直接记录接稿、截稿、收入、来源和业务分类，顺手看月历和本月数据。
-          </p>
-          <div class="hero-actions">
-            <button id="seed-demo" class="ghost-button">载入演示数据</button>
-            <button id="export-json" class="primary-button">导出 JSON</button>
-            <label class="import-button">
-              导入 JSON
-              <input id="import-json" type="file" accept="application/json" hidden />
-            </label>
-            <button id="export-csv" class="ghost-button">导出 CSV</button>
+    <div class="landing-shell">
+      <header class="landing-topbar">
+        <div class="brand-mark">
+          <div class="brand-badge">画</div>
+          <div>
+            <p class="brand-name" data-site-name>画了么</p>
+            <p class="brand-note">给小画师用的接稿排单台</p>
           </div>
         </div>
-        <div class="hero-card">
-          <p>适合记录</p>
-          <ul>
-            <li>米画师 / 画加 / 私单</li>
-            <li>头像 / 立绘 / OC / 服设</li>
-            <li>普通 / 加急 / 特快</li>
-          </ul>
-          <p class="hero-card-note">支持本地模式，也支持接入 Supabase 做账号登录和云端同步。</p>
-        </div>
+        <nav class="topbar-links">
+          <a class="landing-button ghost" href="#support">赞助支持</a>
+          <a class="landing-button ghost" href="#feedback">意见反馈</a>
+          <a class="landing-button primary" href="./app/">进入排单台</a>
+        </nav>
       </header>
 
-      <main class="dashboard">
-        <section class="panel sync-panel">
-          <div class="panel-header">
-            <div>
-              <p class="section-tag">同步</p>
-              <h2>账号与云端数据</h2>
+      <main>
+        <section class="landing-hero">
+          <div>
+            <p class="eyebrow">Open Beta</p>
+            <h1 class="landing-title" data-site-name>画了么</h1>
+            <p class="landing-subtitle" id="landing-subtitle">给小画师用的接稿排单台</p>
+            <p class="landing-copy">
+              免费记录接稿、截稿、收入、异常和平台抽成，替代 Excel 和零散表格。适合米画师、画加、私单画师，也适合想把排单和收款整理清楚的人。
+            </p>
+            <div class="hero-actions">
+              <a class="landing-button primary" href="./app/">免费开始使用</a>
+              <a class="landing-button secondary" href="#feedback">先提个建议</a>
+            </div>
+            <div class="hero-highlights">
+              <article class="hero-stat">
+                <strong>永久免费</strong>
+                <span>主功能不设付费墙</span>
+              </article>
+              <article class="hero-stat">
+                <strong>云端同步</strong>
+                <span>支持账号登录与跨设备</span>
+              </article>
+              <article class="hero-stat">
+                <strong>导入导出</strong>
+                <span>JSON / CSV 都能带走</span>
+              </article>
             </div>
           </div>
-          <div class="sync-grid">
-            <article class="sync-card">
-              <p class="sync-label">当前模式</p>
-              <strong id="sync-mode-label">检测中</strong>
-              <p id="sync-mode-note" class="legend-row">正在检查环境配置。</p>
-              <div id="sync-user" class="sync-user"></div>
+          <aside class="hero-card">
+            <p class="section-tag">适合谁</p>
+            <ul>
+              <li>米画师 / 画加 / 私单接稿画师</li>
+              <li>头像 / 半身 / 立绘 / OC / 服设</li>
+              <li>想替代 Excel、Notion 或聊天记录凑排单的人</li>
+            </ul>
+            <p class="hero-microcopy">
+              现在是公开测试阶段。你可以直接用，也可以通过反馈和赞助一起把它打磨得更顺手。
+            </p>
+          </aside>
+        </section>
+
+        <section class="landing-section">
+          <div class="section-header">
+            <div>
+              <p class="section-tag">Features</p>
+              <h2 class="section-title">核心能力</h2>
+              <p class="section-lead">不只是一张表，而是一套围绕画师接稿流程设计的轻量工作台。</p>
+            </div>
+          </div>
+          <div class="landing-grid">
+            <article class="feature-card">
+              <h3>排单与截稿月历</h3>
+              <p>按截稿日看每个月的工作密度，避免单子都挤在最后几天。</p>
             </article>
-            <form id="auth-form" class="auth-form">
-              <label>
-                邮箱
-                <input id="auth-email" type="email" autocomplete="email" />
-              </label>
-              <label>
-                密码
-                <input
-                  id="auth-password"
-                  type="password"
-                  minlength="6"
-                  autocomplete="current-password"
-                />
-              </label>
-              <div class="hero-actions">
-                <button type="button" id="sign-in" class="primary-button">登录</button>
-                <button type="button" id="sign-up" class="ghost-button">注册</button>
-                <button type="button" id="resend-signup" class="ghost-button">重发验证邮件</button>
-                <button type="button" id="forgot-password" class="ghost-button">忘记密码</button>
-                <button type="button" id="sign-out" class="ghost-button">退出登录</button>
-              </div>
-              <section id="recovery-panel" class="recovery-panel is-hidden">
-                <p class="recovery-title">重置密码</p>
-                <label>
-                  新密码
-                  <input id="reset-password" type="password" minlength="6" autocomplete="new-password" />
-                </label>
-                <label>
-                  再输入一次
-                  <input
-                    id="reset-password-confirm"
-                    type="password"
-                    minlength="6"
-                    autocomplete="new-password"
-                  />
-                </label>
-                <button type="button" id="update-password" class="primary-button">
-                  更新密码
-                </button>
-              </section>
-              <p id="auth-message" class="legend-row">
-                配好 Supabase 环境变量后，画师就能各自登录并保存自己的数据。
+            <article class="feature-card">
+              <h3>收入与平台抽成</h3>
+              <p>记录稿费、已收金额、平台抽成和预计实得，不用自己手算。</p>
+            </article>
+            <article class="feature-card">
+              <h3>异常流程</h3>
+              <p>支持金主退稿、退部分稿、金主异常，并能单独标记已处理。</p>
+            </article>
+            <article class="feature-card">
+              <h3>重复录单</h3>
+              <p>重复上一单、按行复制、批量处理，减少高频重复操作。</p>
+            </article>
+            <article class="feature-card">
+              <h3>本地与云端</h3>
+              <p>你可以只在本机用，也可以登录账号做云端同步。</p>
+            </article>
+            <article class="feature-card">
+              <h3>导入导出</h3>
+              <p>支持 JSON 和 CSV 导出，做备份或换工具都更安心。</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="landing-section">
+          <div class="section-header">
+            <div>
+              <p class="section-tag">Why Free</p>
+              <h2 class="section-title">为什么主功能免费</h2>
+            </div>
+            <div class="section-actions">
+              <a class="landing-button secondary" href="./app/">直接进入工具</a>
+            </div>
+          </div>
+          <p class="support-copy" id="support-message">
+            主功能永久免费。如果它帮你省下了排单、算账和翻表格的时间，欢迎通过赞助支持持续维护。
+          </p>
+        </section>
+
+        <section class="landing-section" id="support">
+          <div class="section-header">
+            <div>
+              <p class="section-tag">Support</p>
+              <h2 class="section-title">赞助支持</h2>
+              <p class="section-lead">赞助主要用于域名、邮件、维护时间和后续开发，不影响主功能免费使用。</p>
+            </div>
+            <div class="section-actions">
+              <a
+                id="sponsor-afdian"
+                class="landing-button primary"
+                href="https://afdian.com/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                去爱发电支持
+              </a>
+            </div>
+          </div>
+          <div class="support-grid">
+            <article class="feature-card">
+              <h3>支持方式</h3>
+              <p>
+                现在采用“爱发电 + 收款码”的双渠道模式。你可以选自己顺手的方式，不需要注册会员，也不会影响工具功能。
               </p>
-            </form>
+            </article>
+            <div id="sponsor-methods" class="support-methods"></div>
           </div>
         </section>
 
-        <section class="panel filters-panel">
-          <div class="panel-header">
+        <section class="landing-section">
+          <div class="section-header">
             <div>
-              <p class="section-tag">筛选</p>
-              <h2>查看范围</h2>
+              <p class="section-tag">Thanks</p>
+              <h2 class="section-title">感谢名单</h2>
+              <p class="section-lead">这里默认只展示愿意公开的昵称，分为内测感谢和赞助鸣谢两组。</p>
             </div>
           </div>
-          <div class="filters-grid">
-            <label>
-              月份
-              <input id="month-filter" type="month" />
-            </label>
-            <label>
-              状态
-              <select id="status-filter">
-                <option value="all">全部</option>
-              </select>
-            </label>
-            <label>
-              来源
-              <select id="source-filter">
-                <option value="all">全部</option>
-              </select>
-            </label>
-            <label>
-              异常
-              <select id="exception-filter">
-                <option value="all">全部</option>
-              </select>
-            </label>
-            <label>
-              收款
-              <select id="payment-filter">
-                <option value="all">全部</option>
-              </select>
-            </label>
-            <label>
-              搜索
-              <input
-                id="search-filter"
-                type="search"
-                placeholder="项目名 / 客户 / 备注"
-              />
-            </label>
+          <div class="thanks-grid">
+            <article class="thanks-card">
+              <details open>
+                <summary>内测感谢</summary>
+                <ul id="beta-thanks-list" class="thanks-list"></ul>
+              </details>
+            </article>
+            <article class="thanks-card">
+              <details open>
+                <summary>赞助鸣谢</summary>
+                <ul id="supporter-thanks-list" class="thanks-list"></ul>
+              </details>
+            </article>
           </div>
         </section>
 
-        <section class="stats-grid" id="stats-grid"></section>
-
-        <section class="content-grid">
-          <section class="panel form-panel">
-            <div class="panel-header">
-              <div>
-                <p class="section-tag">录入</p>
-                <h2 id="form-title">新建稿件</h2>
-              </div>
-            </div>
-            <form id="order-form" class="order-form">
-              <input id="order-id" type="hidden" />
-              <label>
-                项目名
-                <input id="project-name" name="projectName" required maxlength="40" />
-              </label>
-              <label>
-                客户 / 老板 ID
-                <input id="client-name" name="clientName" required maxlength="40" />
-              </label>
-              <label>
-                业务分类
-                <select id="business-type" name="businessType" required></select>
-              </label>
-              <label>
-                来源
-                <select id="source" name="source" required></select>
-              </label>
-              <label>
-                平台抽成 (%)
-                <input id="fee-rate" name="feeRate" type="number" min="0" max="100" step="0.01" />
-              </label>
-              <label>
-                紧急程度
-                <select id="priority" name="priority" required></select>
-              </label>
-              <label>
-                总稿费
-                <input id="amount" name="amount" type="number" min="0" step="1" required />
-              </label>
-              <label>
-                已收金额
-                <input
-                  id="received-amount"
-                  name="receivedAmount"
-                  type="number"
-                  min="0"
-                  step="1"
-                  required
-                />
-              </label>
-              <label>
-                收款状态
-                <select id="payment-status" name="paymentStatus" required></select>
-              </label>
-              <label>
-                截稿日期
-                <input id="due-date" name="dueDate" type="date" required />
-              </label>
-              <label>
-                完成日期
-                <input id="completed-date" name="completedDate" type="date" />
-              </label>
-              <label>
-                状态
-                <select id="status" name="status" required></select>
-              </label>
-              <label>
-                异常类型
-                <select id="exception-type" name="exceptionType" required></select>
-              </label>
-              <label class="full-width">
-                备注
-                <textarea id="notes" name="notes" rows="3" maxlength="140"></textarea>
-              </label>
-              <div class="form-actions full-width">
-                <button type="submit" class="primary-button">保存稿件</button>
-                <button type="button" id="duplicate-last" class="ghost-button">重复上一单</button>
-                <button type="button" id="reset-form" class="ghost-button">清空表单</button>
-              </div>
-            </form>
-          </section>
-
-          <section class="panel analytics-panel">
-            <div class="panel-header">
-              <div>
-                <p class="section-tag">分析</p>
-                <h2>业务结构</h2>
-              </div>
-            </div>
-            <div id="breakdown-list" class="breakdown-list"></div>
-            <div class="legend-row">
-              <span>看哪个分类更赚钱，方便调整主营业方向。</span>
-            </div>
-          </section>
-        </section>
-
-        <section class="panel">
-          <div class="panel-header">
+        <section class="landing-section" id="feedback">
+          <div class="section-header">
             <div>
-              <p class="section-tag">截稿</p>
-              <h2>截稿月历</h2>
-            </div>
-            <div class="calendar-nav">
-              <button id="prev-month" class="ghost-button small-button">上个月</button>
-              <strong id="calendar-title"></strong>
-              <button id="next-month" class="ghost-button small-button">下个月</button>
+              <p class="section-tag">Feedback</p>
+              <h2 class="section-title">意见反馈</h2>
+              <p class="section-lead">
+                有 bug、想要的功能、操作不顺手的地方，都可以直接告诉我。现在不需要登录也能提交。
+              </p>
             </div>
           </div>
-          <div class="calendar-weekdays">
-            <span>日</span>
-            <span>一</span>
-            <span>二</span>
-            <span>三</span>
-            <span>四</span>
-            <span>五</span>
-            <span>六</span>
-          </div>
-          <div id="calendar-grid" class="calendar-grid"></div>
+          <form id="feedback-form" class="feedback-form">
+            <label>
+              昵称（选填）
+              <input id="feedback-nickname" type="text" maxlength="40" placeholder="公开鸣谢用昵称也可以填这里" />
+            </label>
+            <label>
+              联系方式（选填）
+              <input id="feedback-contact" type="text" maxlength="80" placeholder="QQ / 邮箱 / 其他能联系到你的方式" />
+            </label>
+            <label>
+              反馈类型
+              <select id="feedback-category"></select>
+            </label>
+            <label class="honeypot" aria-hidden="true">
+              Website
+              <input id="feedback-website" type="text" tabindex="-1" autocomplete="off" />
+            </label>
+            <label class="full-span">
+              反馈内容
+              <textarea
+                id="feedback-content"
+                rows="5"
+                maxlength="500"
+                placeholder="比如：哪里操作不顺手、想要什么功能、遇到了什么 bug"
+                required
+              ></textarea>
+            </label>
+            <div class="feedback-actions full-span">
+              <button id="feedback-submit" type="submit" class="landing-button primary">提交反馈</button>
+              <p id="feedback-message" class="feedback-note">
+                反馈会直接进入后台，不会在前台公开显示。
+              </p>
+            </div>
+          </form>
         </section>
 
-        <section class="panel">
-          <div class="panel-header">
+        <section class="landing-section">
+          <div class="section-header">
             <div>
-              <p class="section-tag">清单</p>
-              <h2>稿件列表</h2>
-            </div>
-            <div class="table-actions">
-              <span id="table-summary"></span>
+              <p class="section-tag">FAQ</p>
+              <h2 class="section-title">常见问题</h2>
             </div>
           </div>
-          <div id="batch-actions" class="batch-actions is-hidden">
-            <span id="batch-summary"></span>
-            <div class="batch-buttons">
-              <button type="button" id="batch-mark-done" class="ghost-button small-button">批量完成</button>
-              <button type="button" id="batch-mark-paid" class="ghost-button small-button">批量已付款</button>
-              <button type="button" id="batch-mark-handled" class="ghost-button small-button">批量已处理</button>
-              <select id="batch-exception-type" class="batch-select" aria-label="批量异常类型"></select>
-              <button type="button" id="apply-batch-exception" class="ghost-button small-button">应用异常</button>
-              <button type="button" id="clear-selection" class="ghost-button small-button">取消选择</button>
-            </div>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th class="checkbox-col">
-                    <input id="select-all-orders" type="checkbox" aria-label="全选当前列表" />
-                  </th>
-                  <th>截稿日</th>
-                  <th>客户</th>
-                  <th>项目</th>
-                  <th>业务</th>
-                  <th>来源</th>
-                  <th>优先级</th>
-                  <th>稿费</th>
-                  <th>收款</th>
-                  <th>状态</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody id="orders-table-body"></tbody>
-            </table>
+          <div class="faq-grid">
+            <article class="faq-item">
+              <h3>免费吗？</h3>
+              <p>主功能永久免费使用。赞助是自愿支持，不影响正常用。</p>
+            </article>
+            <article class="faq-item">
+              <h3>数据会不会丢？</h3>
+              <p>你可以本地使用，也可以登录云端同步；同时支持 JSON / CSV 导出做备份。</p>
+            </article>
+            <article class="faq-item">
+              <h3>必须注册吗？</h3>
+              <p>不是。只想在自己浏览器里记录的话，本地模式就能用；想跨设备同步再登录即可。</p>
+            </article>
+            <article class="faq-item">
+              <h3>能提功能建议吗？</h3>
+              <p>可以，首页反馈表就是给这个准备的。高频建议会优先排进后续版本。</p>
+            </article>
           </div>
         </section>
       </main>
+
+      <footer class="landing-footer">
+        <div>
+          <strong data-site-name>画了么</strong>
+          <p>给小画师用的接稿排单台。主功能永久免费，公开测试中。</p>
+        </div>
+        <div class="landing-footer-links">
+          <a class="landing-button ghost" href="./privacy.html">隐私说明</a>
+          <a class="landing-button ghost" href="#feedback">意见反馈</a>
+          <a class="landing-button primary" href="./app/">进入排单台</a>
+        </div>
+      </footer>
     </div>
 
-    <template id="stat-card-template">
-      <article class="stat-card">
-        <p class="stat-label"></p>
-        <strong class="stat-value"></strong>
-        <span class="stat-note"></span>
-      </article>
-    </template>
-
     <script src="./env.js"></script>
-    <script type="module" src="./app.js"></script>
+    <script type="module" src="./landing.js"></script>
   </body>
 </html>

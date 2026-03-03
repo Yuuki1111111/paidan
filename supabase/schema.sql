@@ -70,3 +70,26 @@ create policy "Users can delete their own orders"
 on public.commission_orders
 for delete
 using (auth.uid() = user_id);
+
+create table if not exists public.feedback (
+  id uuid primary key default gen_random_uuid(),
+  nickname text not null default '',
+  contact text not null default '',
+  category text not null default '其他',
+  content text not null,
+  page_context text not null default 'landing',
+  created_at timestamptz not null default now()
+);
+
+alter table public.feedback enable row level security;
+
+drop policy if exists "Anyone can insert feedback" on public.feedback;
+create policy "Anyone can insert feedback"
+on public.feedback
+for insert
+with check (
+  char_length(content) between 5 and 500
+  and char_length(nickname) <= 40
+  and char_length(contact) <= 80
+  and category in ('Bug', '功能建议', '体验问题', '其他')
+);

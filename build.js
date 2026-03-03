@@ -1,5 +1,5 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const root = process.cwd();
 const dist = join(root, "dist");
@@ -7,8 +7,19 @@ const dist = join(root, "dist");
 rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
 
-for (const file of ["index.html", "styles.css", "app.js"]) {
-  copyFileSync(join(root, file), join(dist, file));
+for (const file of [
+  "index.html",
+  "landing.css",
+  "landing.js",
+  "site-content.js",
+  "privacy.html",
+  "styles.css",
+  "app.js",
+  "app/index.html",
+]) {
+  const target = join(dist, file);
+  mkdirSync(dirname(target), { recursive: true });
+  copyFileSync(join(root, file), target);
 }
 
 const envConfig = {

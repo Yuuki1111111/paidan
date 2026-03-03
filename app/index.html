@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>画了么 | 排单台</title>
+    <link rel="stylesheet" href="../styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Huale.me</p>
+          <h1>画了么</h1>
+          <p class="hero-text">
+            给小画师用的接稿排单台。记录接稿、截稿、收入、异常和平台抽成，不再靠 Excel 东拼西凑。
+          </p>
+          <div class="hero-actions">
+            <button id="seed-demo" class="ghost-button">载入演示数据</button>
+            <button id="export-json" class="primary-button">导出 JSON</button>
+            <label class="import-button">
+              导入 JSON
+              <input id="import-json" type="file" accept="application/json" hidden />
+            </label>
+            <button id="export-csv" class="ghost-button">导出 CSV</button>
+          </div>
+        </div>
+        <div class="hero-card">
+          <p>适合记录</p>
+          <ul>
+            <li>米画师 / 画加 / 私单</li>
+            <li>头像 / 立绘 / OC / 服设</li>
+            <li>普通 / 加急 / 特快</li>
+          </ul>
+          <p class="hero-card-note">支持本地模式，也支持接入 Supabase 做账号登录和云端同步。</p>
+        </div>
+      </header>
+
+      <main class="dashboard">
+        <section class="panel sync-panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-tag">同步</p>
+              <h2>账号与云端数据</h2>
+            </div>
+          </div>
+          <div class="sync-grid">
+            <article class="sync-card">
+              <p class="sync-label">当前模式</p>
+              <strong id="sync-mode-label">检测中</strong>
+              <p id="sync-mode-note" class="legend-row">正在检查环境配置。</p>
+              <div id="sync-user" class="sync-user"></div>
+            </article>
+            <form id="auth-form" class="auth-form">
+              <label>
+                邮箱
+                <input id="auth-email" type="email" autocomplete="email" />
+              </label>
+              <label>
+                密码
+                <input
+                  id="auth-password"
+                  type="password"
+                  minlength="6"
+                  autocomplete="current-password"
+                />
+              </label>
+              <div class="hero-actions">
+                <button type="button" id="sign-in" class="primary-button">登录</button>
+                <button type="button" id="sign-up" class="ghost-button">注册</button>
+                <button type="button" id="resend-signup" class="ghost-button">重发验证邮件</button>
+                <button type="button" id="forgot-password" class="ghost-button">忘记密码</button>
+                <button type="button" id="sign-out" class="ghost-button">退出登录</button>
+              </div>
+              <section id="recovery-panel" class="recovery-panel is-hidden">
+                <p class="recovery-title">重置密码</p>
+                <label>
+                  新密码
+                  <input id="reset-password" type="password" minlength="6" autocomplete="new-password" />
+                </label>
+                <label>
+                  再输入一次
+                  <input
+                    id="reset-password-confirm"
+                    type="password"
+                    minlength="6"
+                    autocomplete="new-password"
+                  />
+                </label>
+                <button type="button" id="update-password" class="primary-button">
+                  更新密码
+                </button>
+              </section>
+              <p id="auth-message" class="legend-row">
+                配好 Supabase 环境变量后，画师就能各自登录并保存自己的数据。
+              </p>
+            </form>
+          </div>
+        </section>
+
+        <section class="panel filters-panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-tag">筛选</p>
+              <h2>查看范围</h2>
+            </div>
+          </div>
+          <div class="filters-grid">
+            <label>
+              月份
+              <input id="month-filter" type="month" />
+            </label>
+            <label>
+              状态
+              <select id="status-filter">
+                <option value="all">全部</option>
+              </select>
+            </label>
+            <label>
+              来源
+              <select id="source-filter">
+                <option value="all">全部</option>
+              </select>
+            </label>
+            <label>
+              异常
+              <select id="exception-filter">
+                <option value="all">全部</option>
+              </select>
+            </label>
+            <label>
+              收款
+              <select id="payment-filter">
+                <option value="all">全部</option>
+              </select>
+            </label>
+            <label>
+              搜索
+              <input
+                id="search-filter"
+                type="search"
+                placeholder="项目名 / 客户 / 备注"
+              />
+            </label>
+          </div>
+        </section>
+
+        <section class="stats-grid" id="stats-grid"></section>
+
+        <section class="content-grid">
+          <section class="panel form-panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-tag">录入</p>
+                <h2 id="form-title">新建稿件</h2>
+              </div>
+            </div>
+            <form id="order-form" class="order-form">
+              <input id="order-id" type="hidden" />
+              <label>
+                项目名
+                <input id="project-name" name="projectName" required maxlength="40" />
+              </label>
+              <label>
+                客户 / 老板 ID
+                <input id="client-name" name="clientName" required maxlength="40" />
+              </label>
+              <label>
+                业务分类
+                <select id="business-type" name="businessType" required></select>
+              </label>
+              <label>
+                来源
+                <select id="source" name="source" required></select>
+              </label>
+              <label>
+                平台抽成 (%)
+                <input id="fee-rate" name="feeRate" type="number" min="0" max="100" step="0.01" />
+              </label>
+              <label>
+                紧急程度
+                <select id="priority" name="priority" required></select>
+              </label>
+              <label>
+                总稿费
+                <input id="amount" name="amount" type="number" min="0" step="1" required />
+              </label>
+              <label>
+                已收金额
+                <input
+                  id="received-amount"
+                  name="receivedAmount"
+                  type="number"
+                  min="0"
+                  step="1"
+                  required
+                />
+              </label>
+              <label>
+                收款状态
+                <select id="payment-status" name="paymentStatus" required></select>
+              </label>
+              <label>
+                截稿日期
+                <input id="due-date" name="dueDate" type="date" required />
+              </label>
+              <label>
+                完成日期
+                <input id="completed-date" name="completedDate" type="date" />
+              </label>
+              <label>
+                状态
+                <select id="status" name="status" required></select>
+              </label>
+              <label>
+                异常类型
+                <select id="exception-type" name="exceptionType" required></select>
+              </label>
+              <label class="full-width">
+                备注
+                <textarea id="notes" name="notes" rows="3" maxlength="140"></textarea>
+              </label>
+              <div class="form-actions full-width">
+                <button type="submit" class="primary-button">保存稿件</button>
+                <button type="button" id="duplicate-last" class="ghost-button">重复上一单</button>
+                <button type="button" id="reset-form" class="ghost-button">清空表单</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="panel analytics-panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-tag">分析</p>
+                <h2>业务结构</h2>
+              </div>
+            </div>
+            <div id="breakdown-list" class="breakdown-list"></div>
+            <div class="legend-row">
+              <span>看哪个分类更赚钱，方便调整主营业方向。</span>
+            </div>
+          </section>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-tag">截稿</p>
+              <h2>截稿月历</h2>
+            </div>
+            <div class="calendar-nav">
+              <button id="prev-month" class="ghost-button small-button">上个月</button>
+              <strong id="calendar-title"></strong>
+              <button id="next-month" class="ghost-button small-button">下个月</button>
+            </div>
+          </div>
+          <div class="calendar-weekdays">
+            <span>日</span>
+            <span>一</span>
+            <span>二</span>
+            <span>三</span>
+            <span>四</span>
+            <span>五</span>
+            <span>六</span>
+          </div>
+          <div id="calendar-grid" class="calendar-grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-tag">清单</p>
+              <h2>稿件列表</h2>
+            </div>
+            <div class="table-actions">
+              <span id="table-summary"></span>
+            </div>
+          </div>
+          <div id="batch-actions" class="batch-actions is-hidden">
+            <span id="batch-summary"></span>
+            <div class="batch-buttons">
+              <button type="button" id="batch-mark-done" class="ghost-button small-button">批量完成</button>
+              <button type="button" id="batch-mark-paid" class="ghost-button small-button">批量已付款</button>
+              <button type="button" id="batch-mark-handled" class="ghost-button small-button">批量已处理</button>
+              <select id="batch-exception-type" class="batch-select" aria-label="批量异常类型"></select>
+              <button type="button" id="apply-batch-exception" class="ghost-button small-button">应用异常</button>
+              <button type="button" id="clear-selection" class="ghost-button small-button">取消选择</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th class="checkbox-col">
+                    <input id="select-all-orders" type="checkbox" aria-label="全选当前列表" />
+                  </th>
+                  <th>截稿日</th>
+                  <th>客户</th>
+                  <th>项目</th>
+                  <th>业务</th>
+                  <th>来源</th>
+                  <th>优先级</th>
+                  <th>稿费</th>
+                  <th>收款</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="orders-table-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <div>
+          <strong>画了么</strong>
+          <p class="legend-row">主功能永久免费。觉得顺手的话，欢迎赞助支持后续维护。</p>
+        </div>
+        <div class="app-footer-links">
+          <a href="../">返回首页</a>
+          <a href="../#support">赞助支持</a>
+          <a href="../#feedback">意见反馈</a>
+          <a href="../privacy.html">隐私说明</a>
+        </div>
+      </footer>
+    </div>
+
+    <template id="stat-card-template">
+      <article class="stat-card">
+        <p class="stat-label"></p>
+        <strong class="stat-value"></strong>
+        <span class="stat-note"></span>
+      </article>
+    </template>
+
+    <script src="../env.js"></script>
+    <script type="module" src="../app.js"></script>
+  </body>
+</html>
