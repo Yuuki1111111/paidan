@@ -78,7 +78,14 @@ function renderSponsorMethods() {
   const methods = [
     {
       title: "爱发电",
-      body: "如果你用得顺手，想支持画了么继续慢慢更新，可以在这里请我喝杯奶茶。",
+      body: `
+        ${
+          SITE_CONTENT.sponsor.afdianPoster
+            ? `<img src="${escapeHtml(SITE_CONTENT.sponsor.afdianPoster)}" alt="爱发电主页海报" class="afdian-poster" />`
+            : ""
+        }
+        <p class="support-copy-inline">如果你用得顺手，想支持画了么继续慢慢更新，可以在这里请我喝杯奶茶。</p>
+      `,
       action: `<a class="landing-button secondary" href="${escapeHtml(
         SITE_CONTENT.sponsor.afdianUrl || "#",
       )}" target="_blank" rel="noreferrer">${escapeHtml(

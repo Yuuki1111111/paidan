@@ -303,6 +303,10 @@ textarea {
   line-height: 1.7;
 }
 
+.support-copy-inline {
+  margin: 0;
+}
+
 .support-copy {
   margin: 0;
 }
@@ -310,6 +314,17 @@ textarea {
 .support-methods {
   display: grid;
   gap: 14px;
+}
+
+.afdian-poster {
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+  display: block;
+  border-radius: 18px;
+  border: 1px solid rgba(74, 49, 28, 0.08);
+  background: #fff;
+  margin-bottom: 14px;
 }
 
 .qr-image {
