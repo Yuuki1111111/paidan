@@ -15,6 +15,7 @@ const EXCEPTION_RESOLUTIONS = ["协商退全款", "协商退部分款", "协商�
 const ABNORMAL_EXCEPTION_TYPES = new Set(EXCEPTION_TYPES.filter((type) => type !== "无"));
 const CLOSED_STATUSES = new Set(["已完成", "已付款", "已处理"]);
 const DISALLOWED_ABNORMAL_STATUSES = new Set(["已完成", "已付款"]);
+const STAGE_EDITABLE_STATUSES = new Set(["排期中", "进行中", "待交付"]);
 const SOURCE_FEE_RATES = {
   米画师: 0.05,
   画加: 0.0525,
@@ -159,6 +160,8 @@ const state = {
   selectedOrderIds: new Set(),
   lastTemplate: loadLastTemplate(),
   exceptionDialogOrderId: null,
+  stageDialogOrderId: null,
+  stageDialogDraft: "",
 };
 
 const elements = {
@@ -228,6 +231,18 @@ const elements = {
   exceptionDialogMessage: document.querySelector("#exception-dialog-message"),
   saveExceptionHandling: document.querySelector("#save-exception-handling"),
   cancelExceptionHandling: document.querySelector("#cancel-exception-handling"),
+  stageDialog: document.querySelector("#stage-dialog"),
+  stageDialogClose: document.querySelector("#stage-dialog-close"),
+  stageDialogTitle: document.querySelector("#stage-dialog-title"),
+  stageDialogProject: document.querySelector("#stage-dialog-project"),
+  stageDialogClient: document.querySelector("#stage-dialog-client"),
+  stageDialogStatus: document.querySelector("#stage-dialog-status"),
+  stageOptionList: document.querySelector("#stage-option-list"),
+  stageCustomInput: document.querySelector("#stage-custom-input"),
+  stageDialogMessage: document.querySelector("#stage-dialog-message"),
+  saveStage: document.querySelector("#save-stage"),
+  clearStage: document.querySelector("#clear-stage"),
+  cancelStage: document.querySelector("#cancel-stage"),
   authEmail: document.querySelector("#auth-email"),
   authPassword: document.querySelector("#auth-password"),
   signIn: document.querySelector("#sign-in"),
@@ -355,6 +370,29 @@ function bindEvents() {
   elements.exceptionDialog?.addEventListener("cancel", (event) => {
     event.preventDefault();
     closeExceptionDialog();
+  });
+  elements.stageDialogClose.addEventListener("click", closeStageDialog);
+  elements.cancelStage.addEventListener("click", closeStageDialog);
+  elements.clearStage.addEventListener("click", () => {
+    state.stageDialogDraft = "";
+    elements.stageCustomInput.value = "";
+    renderStageOptionList();
+  });
+  elements.saveStage.addEventListener("click", () => {
+    void saveProductionStage();
+  });
+  elements.stageCustomInput.addEventListener("input", (event) => {
+    state.stageDialogDraft = normalizeProductionStageValue(event.target.value);
+    renderStageOptionList();
+  });
+  elements.stageCustomInput.addEventListener("blur", () => {
+    elements.stageCustomInput.value = normalizeProductionStageValue(elements.stageCustomInput.value);
+    state.stageDialogDraft = elements.stageCustomInput.value;
+    renderStageOptionList();
+  });
+  elements.stageDialog?.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeStageDialog();
   });
 
   elements.prevMonth.addEventListener("click", () => {
@@ -886,6 +924,11 @@ function renderSyncPanel() {
   elements.saveExceptionHandling.disabled = state.busy;
   elements.cancelExceptionHandling.disabled = state.busy;
   elements.exceptionDialogClose.disabled = state.busy;
+  elements.stageDialogClose.disabled = state.busy;
+  elements.stageCustomInput.disabled = state.busy;
+  elements.saveStage.disabled = state.busy;
+  elements.clearStage.disabled = state.busy;
+  elements.cancelStage.disabled = state.busy;
   if (elements.exceptionDialog?.open) {
     syncExceptionDialogRefundUi();
   }
@@ -1124,8 +1167,8 @@ function renderTable(orders) {
       <td>${renderPaymentContent(order)}</td>
       <td>
         <div class="chip-group">
-          ${renderStatusChip(order.status)}
-          ${order.productionStage ? renderProductionStageChip(order.productionStage) : ""}
+          ${renderStatusChip(order)}
+          ${order.productionStage ? renderProductionStageChip(order.productionStage, order) : ""}
           ${isAbnormal(order) ? renderExceptionChip(order) : ""}
           ${isOverdue(order) ? '<span class="chip overdue">逾期</span>' : ""}
         </div>
@@ -1152,6 +1195,8 @@ function renderTable(orders) {
         updateOrderStatus(id, "已付款");
       } else if (action === "handled") {
         updateOrderStatus(id, "已处理");
+      } else if (action === "stage") {
+        openStageDialog(id);
       } else if (action === "exception") {
         openExceptionDialog(id);
       } else if (action === "copy") {
@@ -1504,19 +1549,44 @@ async function upsertRemoteOrders(orders, { refresh = true } = {}) {
   }
 }
 
-function renderStatusChip(status) {
+function statusChipClassName(status) {
+  return status === "已完成" || status === "已付款"
+    ? "done"
+    : status === "已处理"
+      ? "handled"
+      : status === "待沟通"
+        ? "waiting"
+        : "";
+}
+
+function renderStaticStatusChip(status) {
+  return `<span class="chip status ${statusChipClassName(status)}">${escapeHtml(status)}</span>`;
+}
+
+function renderStatusChip(order) {
+  const status = order.status;
   const className =
     status === "已完成" || status === "已付款"
       ? "done"
       : status === "已处理"
         ? "handled"
-      : status === "待沟通"
-        ? "waiting"
-        : "";
-  return `<span class="chip status ${className}">${escapeHtml(status)}</span>`;
+        : status === "待沟通"
+          ? "waiting"
+          : "";
+  if (canQuickEditStage(order)) {
+    return `<button type="button" class="chip status ${className} clickable" data-action="stage" data-id="${escapeHtml(
+      order.id,
+    )}" ${state.busy ? "disabled" : ""}>${escapeHtml(status)}</button>`;
+  }
+  return renderStaticStatusChip(status);
 }
 
-function renderProductionStageChip(stage) {
+function renderProductionStageChip(stage, order = null) {
+  if (order && canQuickEditStage(order)) {
+    return `<button type="button" class="chip stage clickable" data-action="stage" data-id="${escapeHtml(
+      order.id,
+    )}" ${state.busy ? "disabled" : ""}>${escapeHtml(stage)}</button>`;
+  }
   return `<span class="chip stage">${escapeHtml(stage)}</span>`;
 }
 
@@ -2009,6 +2079,10 @@ function isClosed(order) {
   return CLOSED_STATUSES.has(order.status);
 }
 
+function canQuickEditStage(order) {
+  return !isAbnormal(order) && STAGE_EDITABLE_STATUSES.has(order.status);
+}
+
 function shouldAutoApplySourceFee() {
   return !state.editingId;
 }
@@ -2069,12 +2143,59 @@ function openExceptionDialog(id) {
   elements.exceptionDialog.showModal();
 }
 
+function openStageDialog(id) {
+  const order = state.orders.find((item) => item.id === id);
+  if (!order || !elements.stageDialog || !canQuickEditStage(order)) return;
+
+  state.stageDialogOrderId = id;
+  state.stageDialogDraft = order.productionStage || "";
+  elements.stageDialogTitle.textContent = `切换阶段：${order.projectName}`;
+  elements.stageDialogProject.textContent = order.projectName;
+  elements.stageDialogClient.textContent = order.clientName;
+  elements.stageDialogStatus.innerHTML = renderStaticStatusChip(order.status);
+  elements.stageCustomInput.value = state.stageDialogDraft;
+  elements.stageDialogMessage.textContent = "";
+  renderStageOptionList();
+  elements.stageDialog.showModal();
+}
+
 function closeExceptionDialog() {
   state.exceptionDialogOrderId = null;
   elements.exceptionDialogMessage.textContent = "";
   if (elements.exceptionDialog?.open) {
     elements.exceptionDialog.close();
   }
+}
+
+function closeStageDialog() {
+  state.stageDialogOrderId = null;
+  state.stageDialogDraft = "";
+  elements.stageDialogMessage.textContent = "";
+  if (elements.stageDialog?.open) {
+    elements.stageDialog.close();
+  }
+}
+
+function renderStageOptionList() {
+  if (!elements.stageOptionList) return;
+  const current = state.stageDialogDraft;
+  elements.stageOptionList.innerHTML = getKnownProductionStages()
+    .map((stage) => {
+      const selected = stage === current ? "is-selected" : "";
+      return `<button type="button" class="stage-option ${selected}" data-stage-option="${escapeHtml(
+        stage,
+      )}" ${state.busy ? "disabled" : ""}>${escapeHtml(stage)}</button>`;
+    })
+    .join("");
+
+  elements.stageOptionList.querySelectorAll("[data-stage-option]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      const value = normalizeProductionStageValue(event.currentTarget.dataset.stageOption);
+      state.stageDialogDraft = value;
+      elements.stageCustomInput.value = value;
+      renderStageOptionList();
+    });
+  });
 }
 
 function syncExceptionDialogRefundUi() {
@@ -2164,6 +2285,32 @@ async function saveExceptionHandling() {
     closeExceptionDialog();
   } catch (error) {
     elements.exceptionDialogMessage.textContent = mapAuthError(error);
+  } finally {
+    setBusy(false);
+    render();
+  }
+}
+
+async function saveProductionStage() {
+  const order = state.orders.find((item) => item.id === state.stageDialogOrderId);
+  if (!order) return;
+
+  const nextStage = normalizeProductionStageValue(elements.stageCustomInput.value || state.stageDialogDraft);
+  const nextOrder = normalizeOrder({
+    ...order,
+    productionStage: nextStage,
+  });
+
+  setBusy(true);
+  try {
+    await persistOrders(
+      state.orders.map((item) => (item.id === order.id ? nextOrder : item)),
+      [order.id],
+    );
+    updateAuthUi(nextStage ? `制作阶段已更新为「${nextStage}」。` : "制作阶段已清空。");
+    closeStageDialog();
+  } catch (error) {
+    elements.stageDialogMessage.textContent = mapAuthError(error);
   } finally {
     setBusy(false);
     render();

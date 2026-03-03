@@ -407,6 +407,54 @@
             </div>
           </form>
         </dialog>
+
+        <dialog id="stage-dialog" class="stage-dialog">
+          <form method="dialog" class="stage-dialog-form">
+            <div class="stage-dialog-header">
+              <div>
+                <p class="section-tag">制作阶段</p>
+                <h2 id="stage-dialog-title">切换制作阶段</h2>
+              </div>
+              <button type="button" id="stage-dialog-close" class="ghost-button small-button">
+                关闭
+              </button>
+            </div>
+            <div class="stage-dialog-grid">
+              <article class="stage-summary-card">
+                <p class="legend-row">项目</p>
+                <strong id="stage-dialog-project"></strong>
+                <p class="legend-row">客户</p>
+                <strong id="stage-dialog-client"></strong>
+                <p class="legend-row">当前状态</p>
+                <div id="stage-dialog-status"></div>
+              </article>
+
+              <div class="stage-fields">
+                <div>
+                  <p class="legend-row">快速切换</p>
+                  <div id="stage-option-list" class="stage-option-list"></div>
+                </div>
+                <label>
+                  自定义阶段
+                  <input
+                    id="stage-custom-input"
+                    list="production-stage-options"
+                    maxlength="20"
+                    placeholder="比如：色草 / 平涂 / 二分"
+                  />
+                </label>
+                <p id="stage-dialog-message" class="legend-row"></p>
+              </div>
+            </div>
+            <div class="stage-dialog-actions">
+              <div class="hero-actions">
+                <button type="button" id="save-stage" class="primary-button">保存阶段</button>
+                <button type="button" id="clear-stage" class="ghost-button">清空阶段</button>
+                <button type="button" id="cancel-stage" class="ghost-button">取消</button>
+              </div>
+            </div>
+          </form>
+        </dialog>
       </main>
 
       <footer class="app-footer">
