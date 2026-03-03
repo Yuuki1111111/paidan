@@ -167,7 +167,15 @@
               </label>
               <label>
                 业务分类
-                <select id="business-type" name="businessType" required></select>
+                <input
+                  id="business-type"
+                  name="businessType"
+                  list="business-type-options"
+                  required
+                  maxlength="20"
+                  placeholder="头像 / 插画 / 自定义分类"
+                />
+                <datalist id="business-type-options"></datalist>
               </label>
               <label>
                 来源
@@ -310,6 +318,78 @@
             </table>
           </div>
         </section>
+
+        <dialog id="exception-dialog" class="exception-dialog">
+          <form method="dialog" class="exception-dialog-form">
+            <div class="exception-dialog-header">
+              <div>
+                <p class="section-tag">异常处理</p>
+                <h2 id="exception-dialog-title">处理异常稿件</h2>
+              </div>
+              <button type="button" id="exception-dialog-close" class="ghost-button small-button">
+                关闭
+              </button>
+            </div>
+            <div class="exception-dialog-grid">
+              <article class="exception-summary-card">
+                <p class="legend-row">项目</p>
+                <strong id="exception-dialog-project"></strong>
+                <p class="legend-row">客户</p>
+                <strong id="exception-dialog-client"></strong>
+                <p class="legend-row">异常类型</p>
+                <div id="exception-dialog-type"></div>
+              </article>
+
+              <div class="exception-fields">
+                <fieldset class="exception-toggle-group">
+                  <legend>异常状态是否已处理</legend>
+                  <label class="toggle-chip">
+                    <input type="radio" name="exceptionHandled" id="exception-handled-no" value="no" />
+                    <span>未处理</span>
+                  </label>
+                  <label class="toggle-chip">
+                    <input type="radio" name="exceptionHandled" id="exception-handled-yes" value="yes" />
+                    <span>已处理</span>
+                  </label>
+                </fieldset>
+
+                <label>
+                  异常处理结果
+                  <select id="exception-resolution">
+                    <option value="">请选择</option>
+                  </select>
+                </label>
+
+                <label id="refund-amount-row" class="is-hidden">
+                  退款金额
+                  <input id="exception-refund-amount" type="number" min="0" step="1" />
+                  <span id="refund-amount-note" class="legend-row"></span>
+                </label>
+
+                <label>
+                  异常备注
+                  <textarea
+                    id="exception-note"
+                    rows="4"
+                    maxlength="200"
+                    placeholder="比如：已与金主协商退部分款 / 双方约定延期到某日 / 目前还在沟通中"
+                  ></textarea>
+                </label>
+              </div>
+            </div>
+            <div class="exception-dialog-actions">
+              <p id="exception-dialog-message" class="legend-row"></p>
+              <div class="hero-actions">
+                <button type="button" id="save-exception-handling" class="primary-button">
+                  保存异常处理
+                </button>
+                <button type="button" id="cancel-exception-handling" class="ghost-button">
+                  取消
+                </button>
+              </div>
+            </div>
+          </form>
+        </dialog>
       </main>
 
       <footer class="app-footer">

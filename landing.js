@@ -78,10 +78,12 @@ function renderSponsorMethods() {
   const methods = [
     {
       title: "爱发电",
-      body: "想长期支持画了么继续更新的话，可以在爱发电请我喝杯奶茶。",
+      body: "如果你用得顺手，想支持画了么继续慢慢更新，可以在这里请我喝杯奶茶。",
       action: `<a class="landing-button secondary" href="${escapeHtml(
         SITE_CONTENT.sponsor.afdianUrl || "#",
-      )}" target="_blank" rel="noreferrer">打开爱发电</a>`,
+      )}" target="_blank" rel="noreferrer">${escapeHtml(
+        SITE_CONTENT.sponsor.afdianLabel || "去爱发电支持Yuuki！",
+      )}</a>`,
     },
     {
       title: "微信赞赏码",

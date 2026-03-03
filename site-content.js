@@ -5,7 +5,7 @@ export const SITE_CONTENT = {
     "主功能永久免费。如果它帮你省下了排单、算账和翻表格的时间，欢迎通过赞助支持持续维护。",
   sponsor: {
     afdianUrl: "https://afdian.com/a/yuukihualema",
-    afdianLabel: "去爱发电支持",
+    afdianLabel: "去爱发电支持Yuuki！",
     wechatQr: "./assets/wechat-qr.jpg",
     alipayQr: "./assets/alipay-qr.jpg",
   },

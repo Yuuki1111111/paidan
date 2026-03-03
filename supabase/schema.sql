@@ -15,6 +15,10 @@ create table if not exists public.commission_orders (
   completed_date date,
   status text not null default '待沟通',
   exception_type text not null default '无',
+  exception_resolution text not null default '',
+  exception_note text not null default '',
+  refund_amount integer not null default 0,
+  exception_previous_status text,
   notes text not null default '',
   fee_rate numeric,
   created_at timestamptz not null default now(),
@@ -23,6 +27,18 @@ create table if not exists public.commission_orders (
 
 alter table public.commission_orders
 add column if not exists exception_type text not null default '无';
+
+alter table public.commission_orders
+add column if not exists exception_resolution text not null default '';
+
+alter table public.commission_orders
+add column if not exists exception_note text not null default '';
+
+alter table public.commission_orders
+add column if not exists refund_amount integer not null default 0;
+
+alter table public.commission_orders
+add column if not exists exception_previous_status text;
 
 alter table public.commission_orders
 add column if not exists fee_rate numeric;

@@ -4,14 +4,16 @@ const STORAGE_KEY = "artist-commission-desk-v1";
 const LAST_TEMPLATE_KEY = "artist-commission-last-template-v1";
 const TABLE_NAME = "commission_orders";
 
-const BUSINESS_TYPES = ["头像", "半身", "立绘", "OC设计", "服设", "橱窗", "加项"];
+const BUILT_IN_BUSINESS_TYPES = ["头像", "半身", "立绘", "插画", "OC设计", "服设", "橱窗", "加项"];
 const SOURCES = ["米画师", "画加", "私单", "橱窗", "熟人转介绍", "社媒引流"];
 const PRIORITIES = ["普通", "加急", "特快"];
 const STATUSES = ["待沟通", "排期中", "进行中", "待交付", "已完成", "已付款", "已处理"];
 const PAYMENT_STATUSES = ["未收款", "已收定金", "已结清"];
 const EXCEPTION_TYPES = ["无", "金主退稿", "金主退部分稿", "金主异常"];
+const EXCEPTION_RESOLUTIONS = ["协商退全款", "协商退部分款", "协商延期", "补偿约定", "拒绝沟通", "其他"];
 const ABNORMAL_EXCEPTION_TYPES = new Set(EXCEPTION_TYPES.filter((type) => type !== "无"));
 const CLOSED_STATUSES = new Set(["已完成", "已付款", "已处理"]);
+const DISALLOWED_ABNORMAL_STATUSES = new Set(["已完成", "已付款"]);
 const SOURCE_FEE_RATES = {
   米画师: 0.05,
   画加: 0.0525,
@@ -73,7 +75,7 @@ const DEMO_ORDERS = [
   {
     projectName: "半身插图",
     clientName: "老板-L02",
-    businessType: "半身",
+    businessType: "插画",
     source: "熟人转介绍",
     priority: "加急",
     amount: 450,
@@ -148,6 +150,7 @@ const state = {
   usingLocalBackup: false,
   selectedOrderIds: new Set(),
   lastTemplate: loadLastTemplate(),
+  exceptionDialogOrderId: null,
 };
 
 const elements = {
@@ -169,6 +172,7 @@ const elements = {
   projectName: document.querySelector("#project-name"),
   clientName: document.querySelector("#client-name"),
   businessType: document.querySelector("#business-type"),
+  businessTypeOptions: document.querySelector("#business-type-options"),
   source: document.querySelector("#source"),
   feeRate: document.querySelector("#fee-rate"),
   priority: document.querySelector("#priority"),
@@ -197,6 +201,22 @@ const elements = {
   batchExceptionType: document.querySelector("#batch-exception-type"),
   applyBatchException: document.querySelector("#apply-batch-exception"),
   clearSelection: document.querySelector("#clear-selection"),
+  exceptionDialog: document.querySelector("#exception-dialog"),
+  exceptionDialogClose: document.querySelector("#exception-dialog-close"),
+  exceptionDialogTitle: document.querySelector("#exception-dialog-title"),
+  exceptionDialogProject: document.querySelector("#exception-dialog-project"),
+  exceptionDialogClient: document.querySelector("#exception-dialog-client"),
+  exceptionDialogType: document.querySelector("#exception-dialog-type"),
+  exceptionHandledNo: document.querySelector("#exception-handled-no"),
+  exceptionHandledYes: document.querySelector("#exception-handled-yes"),
+  exceptionResolution: document.querySelector("#exception-resolution"),
+  refundAmountRow: document.querySelector("#refund-amount-row"),
+  refundAmountNote: document.querySelector("#refund-amount-note"),
+  exceptionRefundAmount: document.querySelector("#exception-refund-amount"),
+  exceptionNote: document.querySelector("#exception-note"),
+  exceptionDialogMessage: document.querySelector("#exception-dialog-message"),
+  saveExceptionHandling: document.querySelector("#save-exception-handling"),
+  cancelExceptionHandling: document.querySelector("#cancel-exception-handling"),
   authEmail: document.querySelector("#auth-email"),
   authPassword: document.querySelector("#auth-password"),
   signIn: document.querySelector("#sign-in"),
@@ -217,12 +237,13 @@ const elements = {
 await bootstrap();
 
 async function bootstrap() {
-  fillSelect(elements.businessType, BUSINESS_TYPES);
+  renderBusinessTypeOptions();
   fillSelect(elements.source, SOURCES);
   fillSelect(elements.priority, PRIORITIES);
   fillSelect(elements.status, STATUSES);
   fillSelect(elements.exceptionType, EXCEPTION_TYPES);
   fillSelect(elements.paymentStatus, PAYMENT_STATUSES);
+  fillSelect(elements.exceptionResolution, EXCEPTION_RESOLUTIONS, false, "请选择");
   fillSelect(elements.statusFilter, STATUSES, true);
   fillSelect(elements.sourceFilter, SOURCES, true);
   fillSelect(elements.exceptionFilter, EXCEPTION_TYPES, true);
@@ -284,6 +305,9 @@ function bindEvents() {
   elements.form.addEventListener("submit", handleSubmit);
   elements.duplicateLast.addEventListener("click", duplicatePreviousOrder);
   elements.resetForm.addEventListener("click", resetForm);
+  elements.businessType.addEventListener("blur", () => {
+    elements.businessType.value = normalizeBusinessTypeValue(elements.businessType.value);
+  });
   elements.source.addEventListener("change", (event) => {
     if (shouldAutoApplySourceFee()) {
       elements.feeRate.value = formatFeeRatePercent(getDefaultFeeRate(event.target.value));
@@ -300,6 +324,18 @@ function bindEvents() {
     applyBatchExceptionType(elements.batchExceptionType.value);
   });
   elements.clearSelection.addEventListener("click", clearSelection);
+  elements.exceptionHandledNo.addEventListener("change", syncExceptionDialogRefundUi);
+  elements.exceptionHandledYes.addEventListener("change", syncExceptionDialogRefundUi);
+  elements.exceptionResolution.addEventListener("change", syncExceptionDialogRefundUi);
+  elements.exceptionDialogClose.addEventListener("click", closeExceptionDialog);
+  elements.cancelExceptionHandling.addEventListener("click", closeExceptionDialog);
+  elements.saveExceptionHandling.addEventListener("click", () => {
+    void saveExceptionHandling();
+  });
+  elements.exceptionDialog?.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeExceptionDialog();
+  });
 
   elements.prevMonth.addEventListener("click", () => {
     state.calendarMonth = shiftMonth(state.calendarMonth, -1);
@@ -603,6 +639,9 @@ async function loadRemoteOrders() {
 async function handleSubmit(event) {
   event.preventDefault();
   const dueDate = elements.dueDate.value;
+  const previousOrder = state.editingId
+    ? state.orders.find((item) => item.id === state.editingId) || null
+    : null;
 
   const order = normalizeOrder({
     id: state.editingId,
@@ -619,11 +658,23 @@ async function handleSubmit(event) {
     completedDate: elements.completedDate.value,
     status: elements.status.value,
     exceptionType: elements.exceptionType.value,
+    exceptionResolution: previousOrder?.exceptionResolution,
+    exceptionNote: previousOrder?.exceptionNote,
+    refundAmount: previousOrder?.refundAmount,
+    exceptionPreviousStatus: previousOrder?.exceptionPreviousStatus,
     notes: elements.notes.value.trim(),
   });
 
   if (!order.projectName || !order.clientName || !dueDate) {
     updateAuthUi("项目名、客户和截稿日期不能为空。");
+    return;
+  }
+  if (!order.businessType) {
+    updateAuthUi("业务分类不能为空。");
+    return;
+  }
+  if (isAbnormal(order) && DISALLOWED_ABNORMAL_STATUSES.has(order.status)) {
+    updateAuthUi("异常单请先完成异常处理，不能直接设为已完成或已付款。");
     return;
   }
 
@@ -735,7 +786,7 @@ function resetForm() {
   elements.form.reset();
   elements.formTitle.textContent = "新建稿件";
   elements.hiddenId.value = "";
-  elements.businessType.value = BUSINESS_TYPES[0];
+  elements.businessType.value = BUILT_IN_BUSINESS_TYPES[0];
   elements.source.value = SOURCES[0];
   elements.feeRate.value = formatFeeRatePercent(getDefaultFeeRate(elements.source.value));
   elements.priority.value = PRIORITIES[0];
@@ -748,6 +799,7 @@ function resetForm() {
 
 function render() {
   const orders = filteredOrders();
+  renderBusinessTypeOptions();
   syncSelectionToVisible(orders);
   renderSyncPanel();
   renderStats(orders);
@@ -804,6 +856,16 @@ function renderSyncPanel() {
   elements.applyBatchException.disabled = !canEditOrders || state.busy;
   elements.batchExceptionType.disabled = !canEditOrders || state.busy;
   elements.clearSelection.disabled = state.busy;
+  elements.exceptionHandledNo.disabled = state.busy;
+  elements.exceptionHandledYes.disabled = state.busy;
+  elements.exceptionResolution.disabled = state.busy;
+  elements.exceptionNote.disabled = state.busy;
+  elements.saveExceptionHandling.disabled = state.busy;
+  elements.cancelExceptionHandling.disabled = state.busy;
+  elements.exceptionDialogClose.disabled = state.busy;
+  if (elements.exceptionDialog?.open) {
+    syncExceptionDialogRefundUi();
+  }
 }
 
 function filteredOrders() {
@@ -829,8 +891,12 @@ function filteredOrders() {
 }
 
 function renderStats(orders) {
-  const totalFee = sumFeeAmounts(orders);
-  const totalNet = sumNetAmounts(orders);
+  const totalRefund = sumRefundAmounts(orders);
+  const totalFee = sumAdjustedFeeAmounts(orders);
+  const totalNet = sumAdjustedNetAmounts(orders);
+  const totalEffectiveAmount = sumEffectiveAmounts(orders);
+  const totalEffectiveReceived = sumEffectiveReceivedAmounts(orders);
+  const unhandledAbnormalCount = orders.filter(isUnhandledAbnormal).length;
   const stats = [
     {
       label: "本月稿件数",
@@ -838,14 +904,14 @@ function renderStats(orders) {
       note: "按当前筛选统计",
     },
     {
-      label: "本月总收入",
-      value: `¥${sumBy(orders, "amount")}`,
-      note: "全部稿费合计",
+      label: "本月结算收入",
+      value: `¥${totalEffectiveAmount}`,
+      note: totalRefund > 0 ? `含退款 ¥${totalRefund}` : "按当前结算口径统计",
     },
     {
-      label: "已收金额",
-      value: `¥${sumBy(orders, "receivedAmount")}`,
-      note: `待收 ¥${Math.max(sumBy(orders, "amount") - sumBy(orders, "receivedAmount"), 0)}`,
+      label: "已收净额",
+      value: `¥${totalEffectiveReceived}`,
+      note: `待收 ¥${Math.max(totalEffectiveAmount - totalEffectiveReceived, 0)}`,
     },
     {
       label: "预计实得",
@@ -859,8 +925,8 @@ function renderStats(orders) {
     },
     {
       label: "待处理稿件",
-      value: `${orders.filter((item) => !isClosed(item) && !isAbnormal(item)).length}`,
-      note: "流程还没结束",
+      value: `${orders.filter((item) => isUnhandledAbnormal(item) || (!isAbnormal(item) && !isClosed(item))).length}`,
+      note: unhandledAbnormalCount > 0 ? `含异常未处理 ${unhandledAbnormalCount} 单` : "流程还没结束",
     },
   ];
 
@@ -876,12 +942,11 @@ function renderStats(orders) {
 }
 
 function renderBreakdown(orders) {
-  const totals = BUSINESS_TYPES.map((name) => ({
+  const totals = getVisibleBusinessTypes(orders).map((name) => ({
     name,
     count: orders.filter((item) => item.businessType === name).length,
-    amount: sumBy(
+    amount: sumEffectiveAmounts(
       orders.filter((item) => item.businessType === name),
-      "amount",
     ),
   })).filter((item) => item.count > 0);
 
@@ -955,23 +1020,39 @@ function renderCalendar(orders) {
 function renderBatchActions(orders) {
   const selectedIds = getSelectedVisibleIds(orders);
   const selectedCount = selectedIds.length;
+  const canEditOrders = state.mode === "local" || Boolean(state.user);
+  const selectedOrders = orders.filter((order) => selectedIds.includes(order.id));
+  const hasAbnormalSelection = selectedOrders.some(isAbnormal);
+  const hasNormalSelection = selectedOrders.some((order) => !isAbnormal(order));
 
   elements.batchActions.classList.toggle("is-hidden", selectedCount === 0);
   elements.batchSummary.textContent =
     selectedCount > 0 ? `已选 ${selectedCount} 单，可以直接批量改状态。` : "";
-  elements.batchExceptionType.disabled = selectedCount === 0 || state.busy;
-  elements.applyBatchException.disabled = selectedCount === 0 || state.busy;
+  elements.batchMarkDone.disabled =
+    !canEditOrders || state.busy || selectedCount === 0 || hasAbnormalSelection;
+  elements.batchMarkPaid.disabled =
+    !canEditOrders || state.busy || selectedCount === 0 || hasAbnormalSelection;
+  elements.batchMarkHandled.disabled =
+    !canEditOrders || state.busy || selectedCount === 0 || hasNormalSelection;
+  elements.batchExceptionType.disabled = !canEditOrders || state.busy || selectedCount === 0;
+  elements.applyBatchException.disabled = !canEditOrders || state.busy || selectedCount === 0;
+  elements.clearSelection.disabled = state.busy || selectedCount === 0;
 }
 
 function renderTable(orders) {
   elements.tableBody.innerHTML = "";
   const grossAmount = sumBy(orders, "amount");
-  const netAmount = sumNetAmounts(orders);
-  const totalFee = sumFeeAmounts(orders);
+  const effectiveAmount = sumEffectiveAmounts(orders);
+  const effectiveReceived = sumEffectiveReceivedAmounts(orders);
+  const netAmount = sumAdjustedNetAmounts(orders);
+  const totalFee = sumAdjustedFeeAmounts(orders);
+  const totalRefund = sumRefundAmounts(orders);
   elements.tableSummary.textContent =
-    totalFee > 0
-      ? `共 ${orders.length} 单，收入 ¥${grossAmount}（实得 ¥${netAmount}），已收 ¥${sumBy(orders, "receivedAmount")}`
-      : `共 ${orders.length} 单，收入 ¥${grossAmount}，已收 ¥${sumBy(orders, "receivedAmount")}`;
+    totalRefund > 0
+      ? `共 ${orders.length} 单，结算收入 ¥${effectiveAmount}（退款 ¥${totalRefund}，实得 ¥${netAmount}），已收净额 ¥${effectiveReceived}`
+      : totalFee > 0
+        ? `共 ${orders.length} 单，收入 ¥${grossAmount}（实得 ¥${netAmount}），已收 ¥${effectiveReceived}`
+        : `共 ${orders.length} 单，收入 ¥${grossAmount}，已收 ¥${effectiveReceived}`;
 
   if (!orders.length) {
     const emptyMessage =
@@ -1015,21 +1096,15 @@ function renderTable(orders) {
       <td><div class="chip-group"><span class="chip business">${escapeHtml(order.businessType)}</span></div></td>
       <td><span class="chip source">${escapeHtml(order.source)}</span></td>
       <td><span class="chip priority">${escapeHtml(order.priority)}</span></td>
-      <td>
-        <strong>¥${order.amount}</strong>
-        ${order.feeRate > 0 ? `<div class="legend-row">预计实得 ¥${calculateNetAmount(order)}</div>` : ""}
-      </td>
-      <td>
-        <div class="chip-group">
-          ${renderPaymentChip(order)}
-          ${isOverdue(order) ? '<span class="chip overdue">逾期</span>' : ""}
-        </div>
-      </td>
+      <td>${renderAmountContent(order)}</td>
+      <td>${renderPaymentContent(order)}</td>
       <td>
         <div class="chip-group">
           ${renderStatusChip(order.status)}
-          ${isAbnormal(order) ? renderExceptionChip(order.exceptionType) : ""}
+          ${isAbnormal(order) ? renderExceptionChip(order) : ""}
+          ${isOverdue(order) ? '<span class="chip overdue">逾期</span>' : ""}
         </div>
+        ${order.exceptionResolution ? `<div class="legend-row">${escapeHtml(order.exceptionResolution)}</div>` : ""}
       </td>
       <td>
         <div class="row-actions">
@@ -1052,6 +1127,8 @@ function renderTable(orders) {
         updateOrderStatus(id, "已付款");
       } else if (action === "handled") {
         updateOrderStatus(id, "已处理");
+      } else if (action === "exception") {
+        openExceptionDialog(id);
       } else if (action === "copy") {
         duplicateOrderFromList(id);
       } else if (action === "edit") {
@@ -1104,7 +1181,7 @@ function fillFormFromOrder(order, title, isEditing = false) {
   elements.hiddenId.value = isEditing ? order.id || "" : "";
   elements.projectName.value = order.projectName || "";
   elements.clientName.value = order.clientName || "";
-  elements.businessType.value = order.businessType || BUSINESS_TYPES[0];
+  elements.businessType.value = order.businessType || BUILT_IN_BUSINESS_TYPES[0];
   elements.source.value = order.source || SOURCES[0];
   elements.feeRate.value = formatFeeRatePercent(order.feeRate ?? getDefaultFeeRate(elements.source.value));
   elements.priority.value = order.priority || PRIORITIES[0];
@@ -1134,6 +1211,10 @@ function makeDuplicateTemplate(order) {
     completedDate: "",
     status: STATUSES[0],
     exceptionType: EXCEPTION_TYPES[0],
+    exceptionResolution: "",
+    exceptionNote: "",
+    refundAmount: 0,
+    exceptionPreviousStatus: null,
     notes: order.notes || "",
   };
 }
@@ -1246,9 +1327,19 @@ function getSelectedVisibleIds(orders) {
 }
 
 async function applyBatchStatus(status) {
-  const targetIds = getSelectedVisibleIds(filteredOrders());
+  const visibleOrders = filteredOrders();
+  const targetIds = getSelectedVisibleIds(visibleOrders);
   if (!targetIds.length) {
     updateAuthUi("先勾选要批量处理的稿件。");
+    return;
+  }
+  const targetOrders = visibleOrders.filter((order) => targetIds.includes(order.id));
+  if ((status === "已完成" || status === "已付款") && targetOrders.some(isAbnormal)) {
+    updateAuthUi("选中的稿件里有异常单，请先处理异常后再批量标记完成或已付款。");
+    return;
+  }
+  if (status === "已处理" && targetOrders.some((order) => !isAbnormal(order))) {
+    updateAuthUi("批量已处理只适用于异常单。");
     return;
   }
 
@@ -1272,7 +1363,16 @@ async function applyBatchExceptionType(exceptionType) {
 
   const updatedOrders = state.orders.map((item) => {
     if (!targetIds.includes(item.id)) return item;
-    return normalizeOrder({ ...item, exceptionType });
+    const shouldRestoreWorkingState = item.status === "已处理" || DISALLOWED_ABNORMAL_STATUSES.has(item.status);
+    return normalizeOrder({
+      ...item,
+      status: shouldRestoreWorkingState ? item.exceptionPreviousStatus || "进行中" : item.status,
+      exceptionType,
+      exceptionResolution: "",
+      exceptionNote: "",
+      refundAmount: 0,
+      exceptionPreviousStatus: null,
+    });
   });
 
   setBusy(true);
@@ -1294,6 +1394,15 @@ async function updateOrderStatus(id, status) {
 
 async function updateOrdersStatus(ids, status, successMessage) {
   if (!ids.length) return false;
+  const affectedOrders = state.orders.filter((item) => ids.includes(item.id));
+  if ((status === "已完成" || status === "已付款") && affectedOrders.some(isAbnormal)) {
+    updateAuthUi("异常单请先完成异常处理，不能直接设为已完成或已付款。");
+    return false;
+  }
+  if (status === "已处理" && affectedOrders.some((item) => !isAbnormal(item))) {
+    updateAuthUi("已处理状态只适用于异常单。");
+    return false;
+  }
 
   const today = formatDateInput(new Date());
   const updatedOrders = state.orders.map((item) => {
@@ -1307,6 +1416,10 @@ async function updateOrdersStatus(ids, status, successMessage) {
       next.completedDate = next.completedDate || today;
       next.receivedAmount = Number(next.amount || 0);
       next.paymentStatus = "已结清";
+    }
+    if (status === "已处理") {
+      next.exceptionPreviousStatus =
+        item.status === "已处理" ? item.exceptionPreviousStatus || "进行中" : item.status;
     }
     return normalizeOrder(next);
   });
@@ -1376,18 +1489,52 @@ function renderStatusChip(status) {
   return `<span class="chip status ${className}">${escapeHtml(status)}</span>`;
 }
 
-function renderExceptionChip(exceptionType) {
-  if (!ABNORMAL_EXCEPTION_TYPES.has(exceptionType)) return "";
-  return `<span class="chip exception abnormal">${escapeHtml(exceptionType)}</span>`;
+function renderExceptionChip(order) {
+  if (!isAbnormal(order)) return "";
+  const tone = isUnhandledAbnormal(order) ? "pending" : "resolved";
+  return `<button type="button" class="chip exception ${tone} clickable" data-action="exception" data-id="${escapeHtml(
+    order.id,
+  )}" ${state.busy ? "disabled" : ""}>${escapeHtml(order.exceptionType)}</button>`;
 }
 
-function renderPaymentChip(order) {
+function renderAmountContent(order) {
+  const effectiveAmount = calculateEffectiveAmount(order);
+  const refundAmount = calculateRefundAmount(order);
+  const netAmount = calculateAdjustedNetAmount(order);
+  const rows = [`<strong>${refundAmount > 0 ? `原稿费 ¥${order.amount}` : `¥${order.amount}`}</strong>`];
+  if (refundAmount > 0) {
+    rows.push(`<div class="legend-row warning-text">退款 ¥${refundAmount}</div>`);
+    rows.push(`<div class="legend-row">结算 ¥${effectiveAmount}</div>`);
+  }
+  if (order.feeRate > 0 || refundAmount > 0) {
+    rows.push(`<div class="legend-row">预计实得 ¥${netAmount}</div>`);
+  }
+  return rows.join("");
+}
+
+function renderPaymentContent(order) {
   const paymentStatus = normalizePaymentStatus(order);
+  const effectiveReceived = calculateEffectiveReceived(order);
+  const effectiveAmount = calculateEffectiveAmount(order);
+  const refundAmount = calculateRefundAmount(order);
+  const outstandingAmount = Math.max(effectiveAmount - effectiveReceived, 0);
   const className =
-    paymentStatus === "已结清" ? "paid" : paymentStatus === "已收定金" ? "partial" : "";
-  const receivedAmount = Number(order.receivedAmount || 0);
-  const outstandingAmount = Math.max(Number(order.amount || 0) - receivedAmount, 0);
-  return `<span class="chip payment ${className}">${escapeHtml(paymentStatus)} · 已收 ¥${receivedAmount}${outstandingAmount ? ` / 待收 ¥${outstandingAmount}` : ""}</span>`;
+    effectiveAmount > 0 && effectiveReceived >= effectiveAmount
+      ? "paid"
+      : effectiveReceived > 0
+        ? "partial"
+        : "";
+  const label = refundAmount > 0 ? `已收净额 ¥${effectiveReceived}` : `${paymentStatus} · 已收 ¥${effectiveReceived}`;
+  return `
+    <div class="chip-group">
+      <span class="chip payment ${className}">${escapeHtml(label)}${outstandingAmount ? ` / 待收 ¥${outstandingAmount}` : ""}</span>
+    </div>
+    ${
+      refundAmount > 0
+        ? `<div class="legend-row">原已收 ¥${Number(order.receivedAmount || 0)} / 已退款 ¥${refundAmount}</div>`
+        : ""
+    }
+  `;
 }
 
 function exportJson() {
@@ -1407,13 +1554,18 @@ function exportCsv() {
     "平台抽成(%)",
     "紧急程度",
     "稿费",
+    "退款金额",
+    "结算收入",
     "预计实得",
     "已收金额",
+    "已收净额",
     "收款状态",
     "截稿日期",
     "完成日期",
     "状态",
     "异常类型",
+    "异常处理结果",
+    "异常备注",
     "备注",
   ];
   const rows = filteredOrders().map((item) => [
@@ -1424,13 +1576,18 @@ function exportCsv() {
     formatFeeRatePercent(item.feeRate),
     item.priority,
     item.amount,
-    calculateNetAmount(item),
+    calculateRefundAmount(item),
+    calculateEffectiveAmount(item),
+    calculateAdjustedNetAmount(item),
     item.receivedAmount ?? 0,
+    calculateEffectiveReceived(item),
     normalizePaymentStatus(item),
     item.dueDate,
     item.completedDate,
     item.status,
     item.exceptionType,
+    item.exceptionResolution,
+    item.exceptionNote,
     item.notes,
   ]);
   const csv = [headers, ...rows]
@@ -1455,6 +1612,7 @@ function importJson(event) {
       const valid = parsed.filter((record) => {
         if (typeof record.projectName !== "string" || !record.projectName.trim()) return false;
         if (typeof record.clientName !== "string" || !record.clientName.trim()) return false;
+        if (typeof record.businessType !== "string" || !record.businessType.trim()) return false;
         if (record.amount != null && (typeof record.amount !== "number" || !isFinite(record.amount))) return false;
         if (record.dueDate != null && record.dueDate !== "" && !datePattern.test(record.dueDate)) return false;
         if (record.completedDate != null && record.completedDate !== "" && !datePattern.test(record.completedDate)) return false;
@@ -1464,6 +1622,15 @@ function importJson(event) {
         }
         if (record.exceptionType != null && !EXCEPTION_TYPES.includes(record.exceptionType)) {
           return false;
+        }
+        if (record.exceptionResolution != null && record.exceptionResolution !== "" && !EXCEPTION_RESOLUTIONS.includes(record.exceptionResolution)) {
+          return false;
+        }
+        if (record.refundAmount != null) {
+          const refundAmount = Number(record.refundAmount);
+          if (!isFinite(refundAmount) || refundAmount < 0) return false;
+          const receivedAmount = Number(record.receivedAmount || 0);
+          if (refundAmount > receivedAmount) return false;
         }
         return true;
       });
@@ -1485,14 +1652,63 @@ function importJson(event) {
   reader.readAsText(file);
 }
 
-function fillSelect(select, values, includeAll = false) {
+function fillSelect(select, values, includeAll = false, placeholder = "") {
   select.innerHTML = includeAll ? '<option value="all">全部</option>' : "";
+  if (!includeAll && placeholder) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = placeholder;
+    select.append(option);
+  }
   values.forEach((value) => {
     const option = document.createElement("option");
     option.value = value;
     option.textContent = value;
     select.append(option);
   });
+}
+
+function renderBusinessTypeOptions() {
+  if (!elements.businessTypeOptions) return;
+  elements.businessTypeOptions.innerHTML = "";
+  getKnownBusinessTypes().forEach((value) => {
+    const option = document.createElement("option");
+    option.value = value;
+    elements.businessTypeOptions.append(option);
+  });
+}
+
+function getKnownBusinessTypes() {
+  const builtIn = [...BUILT_IN_BUSINESS_TYPES];
+  const seen = new Set(builtIn);
+  const dynamic = [];
+
+  state.orders.forEach((order) => {
+    const normalized = normalizeBusinessTypeValue(order.businessType);
+    if (normalized && !seen.has(normalized)) {
+      seen.add(normalized);
+      dynamic.push(normalized);
+    }
+  });
+
+  return [...builtIn, ...dynamic];
+}
+
+function getVisibleBusinessTypes(orders) {
+  const seen = new Set();
+  const names = [];
+  orders.forEach((order) => {
+    const normalized = normalizeBusinessTypeValue(order.businessType);
+    if (normalized && !seen.has(normalized)) {
+      seen.add(normalized);
+      names.push(normalized);
+    }
+  });
+  return names;
+}
+
+function normalizeBusinessTypeValue(value) {
+  return String(value || "").trim().slice(0, 20);
 }
 
 function normalizeOrder(input = {}) {
@@ -1505,12 +1721,24 @@ function normalizeOrder(input = {}) {
       ? getDefaultFeeRate(source)
       : Math.min(Math.max(Number(rawFeeRate) || 0, 0), 1);
   const exceptionType = EXCEPTION_TYPES.includes(input.exceptionType) ? input.exceptionType : "无";
+  const normalizedBusinessType = normalizeBusinessTypeValue(input.businessType);
+  const exceptionResolution =
+    input.exceptionResolution && EXCEPTION_RESOLUTIONS.includes(input.exceptionResolution)
+      ? input.exceptionResolution
+      : "";
+  const refundAmount = Math.max(Number(input.refundAmount || 0), 0);
+  const exceptionPreviousStatus = input.exceptionPreviousStatus || null;
+  const baseStatus = input.status || STATUSES[0];
+  const status =
+    exceptionType === "无" && baseStatus === "已处理"
+      ? exceptionPreviousStatus || "进行中"
+      : baseStatus;
 
   return {
     id: input.id || crypto.randomUUID(),
     projectName: input.projectName || "",
     clientName: input.clientName || "",
-    businessType: input.businessType || BUSINESS_TYPES[0],
+    businessType: normalizedBusinessType || BUILT_IN_BUSINESS_TYPES[0],
     source,
     priority: input.priority || PRIORITIES[0],
     amount,
@@ -1519,8 +1747,12 @@ function normalizeOrder(input = {}) {
     feeRate: normalizedFeeRate,
     dueDate: input.dueDate || "",
     completedDate: input.completedDate || "",
-    status: input.status || STATUSES[0],
+    status,
     exceptionType,
+    exceptionResolution: exceptionType === "无" ? "" : exceptionResolution,
+    exceptionNote: exceptionType === "无" ? "" : String(input.exceptionNote || ""),
+    refundAmount: exceptionType === "无" ? 0 : refundAmount,
+    exceptionPreviousStatus: exceptionType === "无" ? null : exceptionPreviousStatus,
     notes: input.notes || "",
   };
 }
@@ -1541,6 +1773,10 @@ function rowToOrder(row) {
     completedDate: row.completed_date || "",
     status: row.status,
     exceptionType: row.exception_type,
+    exceptionResolution: row.exception_resolution,
+    exceptionNote: row.exception_note,
+    refundAmount: row.refund_amount,
+    exceptionPreviousStatus: row.exception_previous_status,
     notes: row.notes || "",
   });
 }
@@ -1562,6 +1798,10 @@ function orderToRow(order, userId) {
     completed_date: order.completedDate || null,
     status: order.status,
     exception_type: order.exceptionType || "无",
+    exception_resolution: order.exceptionResolution || "",
+    exception_note: order.exceptionNote || "",
+    refund_amount: Number(order.refundAmount || 0),
+    exception_previous_status: order.exceptionPreviousStatus || null,
     notes: order.notes || "",
   };
 }
@@ -1621,6 +1861,27 @@ function calculateNetAmount(order) {
   return Math.max(Number(order.amount || 0) - calculateFeeAmount(order), 0);
 }
 
+function calculateRefundAmount(order) {
+  return Math.max(Number(order.refundAmount || 0), 0);
+}
+
+function calculateEffectiveAmount(order) {
+  if (order.exceptionResolution === "协商退全款") return 0;
+  return Math.max(Number(order.amount || 0) - calculateRefundAmount(order), 0);
+}
+
+function calculateEffectiveReceived(order) {
+  return Math.max(Number(order.receivedAmount || 0) - calculateRefundAmount(order), 0);
+}
+
+function calculateAdjustedFeeAmount(order) {
+  return Math.round(calculateEffectiveAmount(order) * Number(order.feeRate || 0));
+}
+
+function calculateAdjustedNetAmount(order) {
+  return Math.max(calculateEffectiveAmount(order) - calculateAdjustedFeeAmount(order), 0);
+}
+
 function sumFeeAmounts(list) {
   return list.reduce((total, item) => total + calculateFeeAmount(item), 0);
 }
@@ -1629,8 +1890,36 @@ function sumNetAmounts(list) {
   return list.reduce((total, item) => total + calculateNetAmount(item), 0);
 }
 
+function sumRefundAmounts(list) {
+  return list.reduce((total, item) => total + calculateRefundAmount(item), 0);
+}
+
+function sumEffectiveAmounts(list) {
+  return list.reduce((total, item) => total + calculateEffectiveAmount(item), 0);
+}
+
+function sumEffectiveReceivedAmounts(list) {
+  return list.reduce((total, item) => total + calculateEffectiveReceived(item), 0);
+}
+
+function sumAdjustedFeeAmounts(list) {
+  return list.reduce((total, item) => total + calculateAdjustedFeeAmount(item), 0);
+}
+
+function sumAdjustedNetAmounts(list) {
+  return list.reduce((total, item) => total + calculateAdjustedNetAmount(item), 0);
+}
+
 function isAbnormal(order) {
   return ABNORMAL_EXCEPTION_TYPES.has(order.exceptionType);
+}
+
+function isUnhandledAbnormal(order) {
+  return isAbnormal(order) && order.status !== "已处理";
+}
+
+function isHandledAbnormal(order) {
+  return isAbnormal(order) && order.status === "已处理";
 }
 
 function isClosed(order) {
@@ -1673,6 +1962,129 @@ function isOverdue(order) {
   if (!order.dueDate) return false;
   const today = formatDateInput(new Date());
   return order.dueDate < today && !isClosed(order) && !isAbnormal(order);
+}
+
+function openExceptionDialog(id) {
+  const order = state.orders.find((item) => item.id === id);
+  if (!order || !isAbnormal(order) || !elements.exceptionDialog) return;
+
+  state.exceptionDialogOrderId = id;
+  elements.exceptionDialogTitle.textContent = `处理异常：${order.projectName}`;
+  elements.exceptionDialogProject.textContent = order.projectName;
+  elements.exceptionDialogClient.textContent = order.clientName;
+  elements.exceptionDialogType.innerHTML = `<span class="chip exception ${isUnhandledAbnormal(order) ? "pending" : "resolved"}">${escapeHtml(
+    order.exceptionType,
+  )}</span>`;
+  elements.exceptionHandledYes.checked = order.status === "已处理";
+  elements.exceptionHandledNo.checked = order.status !== "已处理";
+  elements.exceptionResolution.value = order.exceptionResolution || "";
+  elements.exceptionRefundAmount.value =
+    calculateRefundAmount(order) > 0 ? String(calculateRefundAmount(order)) : "";
+  elements.exceptionNote.value = order.exceptionNote || "";
+  elements.exceptionDialogMessage.textContent = "";
+  syncExceptionDialogRefundUi();
+  elements.exceptionDialog.showModal();
+}
+
+function closeExceptionDialog() {
+  state.exceptionDialogOrderId = null;
+  elements.exceptionDialogMessage.textContent = "";
+  if (elements.exceptionDialog?.open) {
+    elements.exceptionDialog.close();
+  }
+}
+
+function syncExceptionDialogRefundUi() {
+  const resolution = elements.exceptionResolution.value;
+  const order = state.orders.find((item) => item.id === state.exceptionDialogOrderId);
+  const handled = elements.exceptionHandledYes.checked;
+  const showRefund = resolution === "协商退全款" || resolution === "协商退部分款";
+  elements.exceptionResolution.disabled = state.busy || !handled;
+  elements.refundAmountRow.classList.toggle("is-hidden", !showRefund);
+
+  if (!handled) {
+    elements.refundAmountRow.classList.add("is-hidden");
+    elements.exceptionRefundAmount.disabled = true;
+    elements.refundAmountNote.textContent = "";
+    return;
+  }
+
+  if (!showRefund || !order) {
+    elements.exceptionRefundAmount.disabled = true;
+    elements.exceptionRefundAmount.value = "";
+    elements.refundAmountNote.textContent = "";
+    return;
+  }
+
+  if (resolution === "协商退全款") {
+    const fullRefund = String(Number(order.receivedAmount || 0));
+    elements.exceptionRefundAmount.disabled = true;
+    elements.exceptionRefundAmount.value = fullRefund;
+    elements.refundAmountNote.textContent = "退全款会按当前已收金额自动填写。";
+    return;
+  }
+
+  elements.exceptionRefundAmount.disabled = state.busy;
+  elements.refundAmountNote.textContent = `退款金额需大于 0，且不能超过已收 ¥${Number(order.receivedAmount || 0)}。`;
+}
+
+async function saveExceptionHandling() {
+  const order = state.orders.find((item) => item.id === state.exceptionDialogOrderId);
+  if (!order) return;
+
+  const handled = elements.exceptionHandledYes.checked;
+  const resolution = handled ? elements.exceptionResolution.value : "";
+  const note = elements.exceptionNote.value.trim();
+  const today = formatDateInput(new Date());
+  let refundAmount = 0;
+
+  if (handled && !EXCEPTION_RESOLUTIONS.includes(resolution)) {
+    elements.exceptionDialogMessage.textContent = "标记为已处理时，先选择一个处理结果。";
+    return;
+  }
+
+  if (resolution === "协商退全款") {
+    refundAmount = Number(order.receivedAmount || 0);
+  } else if (resolution === "协商退部分款") {
+    refundAmount = Number(elements.exceptionRefundAmount.value || 0);
+    if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
+      elements.exceptionDialogMessage.textContent = "退部分款时，请填写大于 0 的退款金额。";
+      return;
+    }
+    if (refundAmount > Number(order.receivedAmount || 0)) {
+      elements.exceptionDialogMessage.textContent = "退款金额不能超过当前已收金额。";
+      return;
+    }
+  }
+
+  const nextOrder = normalizeOrder({
+    ...order,
+    status: handled ? "已处理" : order.status === "已处理" ? order.exceptionPreviousStatus || "进行中" : order.status,
+    completedDate: handled ? order.completedDate || today : order.completedDate,
+    exceptionResolution: handled ? resolution : "",
+    exceptionNote: note,
+    refundAmount: handled ? refundAmount : 0,
+    exceptionPreviousStatus: handled
+      ? order.status === "已处理"
+        ? order.exceptionPreviousStatus || "进行中"
+        : order.status
+      : null,
+  });
+
+  setBusy(true);
+  try {
+    await persistOrders(
+      state.orders.map((item) => (item.id === order.id ? nextOrder : item)),
+      [order.id],
+    );
+    updateAuthUi("异常处理已保存。");
+    closeExceptionDialog();
+  } catch (error) {
+    elements.exceptionDialogMessage.textContent = mapAuthError(error);
+  } finally {
+    setBusy(false);
+    render();
+  }
 }
 
 function loadLocalOrders() {
