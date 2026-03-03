@@ -118,6 +118,7 @@ const state = {
   session: null,
   user: null,
   busy: false,
+  recoveryMode: detectFlowType() === "recovery",
 };
 
 const elements = {
@@ -155,12 +156,17 @@ const elements = {
   nextMonth: document.querySelector("#next-month"),
   resetForm: document.querySelector("#reset-form"),
   statTemplate: document.querySelector("#stat-card-template"),
-  authForm: document.querySelector("#auth-form"),
   authEmail: document.querySelector("#auth-email"),
   authPassword: document.querySelector("#auth-password"),
   signIn: document.querySelector("#sign-in"),
   signUp: document.querySelector("#sign-up"),
+  resendSignup: document.querySelector("#resend-signup"),
+  forgotPassword: document.querySelector("#forgot-password"),
   signOut: document.querySelector("#sign-out"),
+  recoveryPanel: document.querySelector("#recovery-panel"),
+  resetPassword: document.querySelector("#reset-password"),
+  resetPasswordConfirm: document.querySelector("#reset-password-confirm"),
+  updatePassword: document.querySelector("#update-password"),
   authMessage: document.querySelector("#auth-message"),
   syncModeLabel: document.querySelector("#sync-mode-label"),
   syncModeNote: document.querySelector("#sync-mode-note"),
@@ -243,7 +249,10 @@ function bindEvents() {
 
   elements.signIn.addEventListener("click", () => signInWithEmail());
   elements.signUp.addEventListener("click", () => signUpWithEmail());
+  elements.resendSignup.addEventListener("click", () => resendSignupEmail());
+  elements.forgotPassword.addEventListener("click", () => requestPasswordReset());
   elements.signOut.addEventListener("click", () => signOut());
+  elements.updatePassword.addEventListener("click", () => completePasswordReset());
 }
 
 function initializeSupabase() {
@@ -255,16 +264,35 @@ function initializeSupabase() {
     },
   });
 
-  state.supabase.auth.onAuthStateChange(async (_event, session) => {
+  state.supabase.auth.onAuthStateChange(async (event, session) => {
     state.session = session;
     state.user = session?.user ?? null;
+
+    if (event === "PASSWORD_RECOVERY") {
+      state.recoveryMode = true;
+      updateAuthUi("已进入重置密码流程，请输入新密码。");
+      render();
+      return;
+    }
+
     if (state.user) {
       await loadRemoteOrders();
-      updateAuthUi(`已登录 ${state.user.email}，当前数据走 Supabase 云端同步。`);
-    } else {
+      if (detectFlowType() === "signup") {
+        updateAuthUi("邮箱验证成功，已经为你登录。");
+        clearAuthRedirect();
+      } else if (!state.recoveryMode) {
+        updateAuthUi(`已登录 ${state.user.email}，当前数据走 Supabase 云端同步。`);
+      }
+    } else if (!state.recoveryMode) {
       state.orders = [];
-      updateAuthUi("云端模式已开启。登录后每个画师只会看到自己的数据。");
+      if (detectFlowType() === "signup") {
+        updateAuthUi("邮箱验证链接已打开，请返回登录状态继续使用。");
+        clearAuthRedirect();
+      } else {
+        updateAuthUi("云端模式已开启。登录后每个画师只会看到自己的数据。");
+      }
     }
+
     render();
   });
 }
@@ -272,7 +300,7 @@ function initializeSupabase() {
 async function restoreSession() {
   const { data, error } = await state.supabase.auth.getSession();
   if (error) {
-    updateAuthUi(error.message);
+    updateAuthUi(mapAuthError(error));
     return;
   }
 
@@ -281,7 +309,16 @@ async function restoreSession() {
 
   if (state.user) {
     await loadRemoteOrders();
-    updateAuthUi(`已登录 ${state.user.email}，当前数据走 Supabase 云端同步。`);
+    if (state.recoveryMode) {
+      updateAuthUi("已通过重置链接返回，请输入新密码。");
+    } else if (detectFlowType() === "signup") {
+      updateAuthUi("邮箱验证成功，已经为你登录。");
+      clearAuthRedirect();
+    } else {
+      updateAuthUi(`已登录 ${state.user.email}，当前数据走 Supabase 云端同步。`);
+    }
+  } else if (state.recoveryMode) {
+    updateAuthUi("已打开重置密码链接，请输入新密码。");
   } else {
     state.orders = [];
     updateAuthUi("云端模式已开启。登录后每个画师只会看到自己的数据。");
@@ -302,19 +339,115 @@ async function signUpWithEmail() {
   }
 
   setBusy(true);
-  const { data, error } = await state.supabase.auth.signUp({ email, password });
+  const { data, error } = await state.supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      emailRedirectTo: currentSiteUrl(),
+    },
+  });
   setBusy(false);
 
   if (error) {
-    updateAuthUi(error.message);
+    updateAuthUi(mapAuthError(error));
     return;
   }
 
   if (data.session) {
     updateAuthUi("注册成功，已自动登录。");
   } else {
-    updateAuthUi("注册成功。如果项目开启了邮箱确认，请先去邮箱完成验证。");
+    updateAuthUi("注册成功，请去邮箱点验证链接。没收到可以点“重发验证邮件”。");
   }
+}
+
+async function resendSignupEmail() {
+  if (!state.supabase) {
+    updateAuthUi("未配置 Supabase 环境变量，暂时不能重发验证邮件。");
+    return;
+  }
+
+  const email = elements.authEmail.value.trim();
+  if (!email) {
+    updateAuthUi("先填写要验证的邮箱。");
+    return;
+  }
+
+  setBusy(true);
+  const { error } = await state.supabase.auth.resend({
+    type: "signup",
+    email,
+    options: {
+      emailRedirectTo: currentSiteUrl(),
+    },
+  });
+  setBusy(false);
+
+  if (error) {
+    updateAuthUi(mapAuthError(error));
+  } else {
+    updateAuthUi("验证邮件已重新发送，请检查邮箱。");
+  }
+}
+
+async function requestPasswordReset() {
+  if (!state.supabase) {
+    updateAuthUi("未配置 Supabase 环境变量，暂时不能重置密码。");
+    return;
+  }
+
+  const email = elements.authEmail.value.trim();
+  if (!email) {
+    updateAuthUi("先填写注册邮箱，我才能发重置邮件。");
+    return;
+  }
+
+  setBusy(true);
+  const { error } = await state.supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: currentSiteUrl(),
+  });
+  setBusy(false);
+
+  if (error) {
+    updateAuthUi(mapAuthError(error));
+  } else {
+    updateAuthUi("重置密码邮件已发送，请去邮箱点开链接后回到当前页面。");
+  }
+}
+
+async function completePasswordReset() {
+  if (!state.supabase || !state.recoveryMode) {
+    updateAuthUi("当前不在重置密码流程里。");
+    return;
+  }
+
+  const password = elements.resetPassword.value.trim();
+  const confirmPassword = elements.resetPasswordConfirm.value.trim();
+
+  if (password.length < 6) {
+    updateAuthUi("新密码至少 6 位。");
+    return;
+  }
+
+  if (password !== confirmPassword) {
+    updateAuthUi("两次输入的新密码不一致。");
+    return;
+  }
+
+  setBusy(true);
+  const { error } = await state.supabase.auth.updateUser({ password });
+  setBusy(false);
+
+  if (error) {
+    updateAuthUi(mapAuthError(error));
+    return;
+  }
+
+  state.recoveryMode = false;
+  elements.resetPassword.value = "";
+  elements.resetPasswordConfirm.value = "";
+  clearAuthRedirect();
+  updateAuthUi("密码已更新，可以直接继续使用。");
+  render();
 }
 
 async function signInWithEmail() {
@@ -335,7 +468,7 @@ async function signInWithEmail() {
   setBusy(false);
 
   if (error) {
-    updateAuthUi(error.message);
+    updateAuthUi(mapAuthError(error));
   } else {
     updateAuthUi("登录成功，正在同步数据。");
   }
@@ -352,8 +485,10 @@ async function signOut() {
   setBusy(false);
 
   if (error) {
-    updateAuthUi(error.message);
+    updateAuthUi(mapAuthError(error));
   } else {
+    state.recoveryMode = false;
+    clearAuthRedirect();
     updateAuthUi("已退出登录。");
   }
 }
@@ -368,7 +503,7 @@ async function loadRemoteOrders() {
     .order("created_at", { ascending: false });
 
   if (error) {
-    updateAuthUi(`读取云端数据失败：${error.message}`);
+    updateAuthUi(`读取云端数据失败：${mapAuthError(error)}`);
     return;
   }
 
@@ -409,7 +544,7 @@ async function handleSubmit(event) {
     resetForm();
     updateAuthUi(state.mode === "cloud" ? "云端数据已保存。" : "本地数据已保存。");
   } catch (error) {
-    updateAuthUi(error.message || "保存失败。");
+    updateAuthUi(mapAuthError(error));
   } finally {
     setBusy(false);
     render();
@@ -468,7 +603,7 @@ async function replaceAllOrders(inputOrders) {
     resetForm();
     render();
   } catch (error) {
-    updateAuthUi(error.message || "覆盖数据失败。");
+    updateAuthUi(mapAuthError(error));
   } finally {
     setBusy(false);
   }
@@ -532,12 +667,20 @@ function renderSyncPanel() {
     elements.syncUser.innerHTML = '<span class="chip priority">localStorage</span>';
   }
 
+  elements.recoveryPanel.classList.toggle("is-hidden", !state.recoveryMode);
+
   const authDisabled = state.mode !== "cloud" || state.busy;
-  elements.authEmail.disabled = authDisabled;
-  elements.authPassword.disabled = authDisabled;
-  elements.signIn.disabled = authDisabled;
-  elements.signUp.disabled = authDisabled;
+  elements.authEmail.disabled = authDisabled || state.recoveryMode;
+  elements.authPassword.disabled = authDisabled || state.recoveryMode;
+  elements.signIn.disabled = authDisabled || state.recoveryMode;
+  elements.signUp.disabled = authDisabled || state.recoveryMode;
+  elements.resendSignup.disabled = authDisabled || state.recoveryMode;
+  elements.forgotPassword.disabled = authDisabled || state.recoveryMode;
   elements.signOut.disabled = state.mode !== "cloud" || !state.user || state.busy;
+  elements.resetPassword.disabled = state.mode !== "cloud" || !state.recoveryMode || state.busy;
+  elements.resetPasswordConfirm.disabled =
+    state.mode !== "cloud" || !state.recoveryMode || state.busy;
+  elements.updatePassword.disabled = state.mode !== "cloud" || !state.recoveryMode || state.busy;
 
   elements.form.querySelectorAll("input, select, textarea, button").forEach((field) => {
     field.disabled = !canEditOrders || state.busy;
@@ -791,7 +934,7 @@ async function deleteOrder(id) {
     }
     updateAuthUi("稿件已删除。");
   } catch (error) {
-    updateAuthUi(error.message || "删除失败。");
+    updateAuthUi(mapAuthError(error));
   } finally {
     setBusy(false);
     render();
@@ -976,6 +1119,34 @@ function inferPaymentStatus(order) {
   if (amount > 0 && receivedAmount >= amount) return "已结清";
   if (receivedAmount > 0) return "已收定金";
   return "未收款";
+}
+
+function detectFlowType() {
+  const search = new URLSearchParams(window.location.search);
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  return search.get("type") || hash.get("type") || "";
+}
+
+function clearAuthRedirect() {
+  window.history.replaceState({}, document.title, window.location.pathname);
+}
+
+function currentSiteUrl() {
+  return `${window.location.origin}${window.location.pathname}`;
+}
+
+function mapAuthError(error) {
+  const message = String(error?.message || error || "操作失败。");
+  if (message.includes("email rate limit exceeded")) {
+    return "邮件发送太频繁，被 Supabase 限流了。先等一会儿再试，别连续点发送。";
+  }
+  if (message.includes("only request this after")) {
+    return "请求太频繁，Supabase 暂时不再发邮件。等一会儿再重试。";
+  }
+  if (message.includes("Email link is invalid") || message.includes("expired")) {
+    return "这个邮件链接已经失效了，请重新发送一封新的验证或重置邮件。";
+  }
+  return message;
 }
 
 function isOverdue(order) {
