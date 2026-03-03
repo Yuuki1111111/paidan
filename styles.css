@@ -442,11 +442,9 @@ button:disabled,
 }
 
 .batch-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  display: grid;
   gap: 12px;
-  flex-wrap: wrap;
+  align-items: start;
   padding: 12px 14px;
   margin-bottom: 14px;
   border: 1px dashed rgba(216, 107, 45, 0.26);
@@ -454,14 +452,22 @@ button:disabled,
   background: rgba(216, 107, 45, 0.08);
 }
 
+.batch-actions > span {
+  color: var(--muted);
+  font-size: 14px;
+}
+
 .batch-buttons {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: center;
 }
 
 .batch-select {
   min-width: 148px;
+  max-width: 320px;
 }
 
 table {
