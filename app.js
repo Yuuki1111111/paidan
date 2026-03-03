@@ -512,6 +512,7 @@ async function loadRemoteOrders() {
 
 async function handleSubmit(event) {
   event.preventDefault();
+  const dueDate = elements.dueDate.value;
 
   const order = normalizeOrder({
     id: state.editingId,
@@ -523,14 +524,14 @@ async function handleSubmit(event) {
     amount: Number(elements.amount.value),
     receivedAmount: Number(elements.receivedAmount.value),
     paymentStatus: elements.paymentStatus.value,
-    dueDate: elements.dueDate.value,
+    dueDate,
     completedDate: elements.completedDate.value,
     status: elements.status.value,
     notes: elements.notes.value.trim(),
   });
 
-  if (!order.projectName || !order.clientName || !order.dueDate) {
-    updateAuthUi("项目名、客户和排期日期不能为空。");
+  if (!order.projectName || !order.clientName || !dueDate) {
+    updateAuthUi("项目名、客户和截稿日期不能为空。");
     return;
   }
 
@@ -637,7 +638,7 @@ function resetForm() {
   elements.receivedAmount.value = "0";
   elements.paymentStatus.value = PAYMENT_STATUSES[0];
   elements.status.value = STATUSES[0];
-  elements.dueDate.value = formatDateInput(new Date());
+  elements.dueDate.value = "";
 }
 
 function render() {
@@ -845,7 +846,7 @@ function renderTable(orders) {
   orders.forEach((order) => {
     const row = document.createElement("tr");
     row.innerHTML = `
-      <td>${order.dueDate}</td>
+      <td>${order.dueDate || "-"}</td>
       <td>${escapeHtml(order.clientName)}</td>
       <td>
         <strong>${escapeHtml(order.projectName)}</strong>
@@ -978,7 +979,7 @@ function exportCsv() {
     "稿费",
     "已收金额",
     "收款状态",
-    "排期日期",
+    "截稿日期",
     "完成日期",
     "状态",
     "备注",
@@ -1045,7 +1046,7 @@ function normalizeOrder(input = {}) {
     amount: Number(input.amount || 0),
     receivedAmount: Number(input.receivedAmount || 0),
     paymentStatus: input.paymentStatus || inferPaymentStatus(input),
-    dueDate: input.dueDate || formatDateInput(new Date()),
+    dueDate: input.dueDate || "",
     completedDate: input.completedDate || "",
     status: input.status || STATUSES[0],
     notes: input.notes || "",
