@@ -189,6 +189,7 @@ async function bootstrap() {
 
   bindEvents();
   resetForm();
+  render();
 
   if (state.mode === "cloud") {
     initializeSupabase();
@@ -266,7 +267,7 @@ function initializeSupabase() {
     },
   });
 
-  state.supabase.auth.onAuthStateChange(async (event, session) => {
+  state.supabase.auth.onAuthStateChange((event, session) => {
     state.session = session;
     state.user = session?.user ?? null;
 
@@ -277,30 +278,36 @@ function initializeSupabase() {
       return;
     }
 
-    if (state.user) {
-      await loadRemoteOrders();
-      if (detectFlowType() === "signup") {
-        updateAuthUi("邮箱验证成功，已经为你登录。");
-        clearAuthRedirect();
-      } else if (state.usingLocalBackup) {
-        updateAuthUi(
-          `已登录 ${state.user.email}。当前云端还没有数据，先显示这台设备里的旧记录；你后续新增、编辑或删除时会自动同步到云端。`,
-        );
-      } else if (!state.recoveryMode) {
-        updateAuthUi(`已登录 ${state.user.email}，当前数据走 Supabase 云端同步。`);
-      }
-    } else if (!state.recoveryMode) {
-      state.orders = [];
-      if (detectFlowType() === "signup") {
-        updateAuthUi("邮箱验证链接已打开，请返回登录状态继续使用。");
-        clearAuthRedirect();
-      } else {
-        updateAuthUi("云端模式已开启。登录后每个画师只会看到自己的数据。");
-      }
-    }
-
-    render();
+    window.setTimeout(() => {
+      void applyAuthSessionState();
+    }, 0);
   });
+}
+
+async function applyAuthSessionState() {
+  if (state.user) {
+    await loadRemoteOrders();
+    if (detectFlowType() === "signup") {
+      updateAuthUi("邮箱验证成功，已经为你登录。");
+      clearAuthRedirect();
+    } else if (state.usingLocalBackup) {
+      updateAuthUi(
+        `已登录 ${state.user.email}。当前云端还没有数据，先显示这台设备里的旧记录；你后续新增、编辑或删除时会自动同步到云端。`,
+      );
+    } else if (!state.recoveryMode) {
+      updateAuthUi(`已登录 ${state.user.email}，当前数据走 Supabase 云端同步。`);
+    }
+  } else if (!state.recoveryMode) {
+    state.orders = [];
+    if (detectFlowType() === "signup") {
+      updateAuthUi("邮箱验证链接已打开，请返回登录状态继续使用。");
+      clearAuthRedirect();
+    } else {
+      updateAuthUi("云端模式已开启。登录后每个画师只会看到自己的数据。");
+    }
+  }
+
+  render();
 }
 
 async function restoreSession() {
