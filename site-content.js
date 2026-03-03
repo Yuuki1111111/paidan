@@ -6,7 +6,7 @@ export const SITE_CONTENT = {
   sponsor: {
     afdianUrl: "https://afdian.com/a/yuukihualema",
     afdianLabel: "去爱发电支持Yuuki！",
-    afdianPoster: "./assets/afdian-[未认证]Yuuki.jpeg",
+    afdianPoster: "./assets/afdian-poster.jpeg",
     wechatQr: "./assets/wechat-qr.jpg",
     alipayQr: "./assets/alipay-qr.jpg",
   },

@@ -15,6 +15,7 @@ for (const file of [
   "privacy.html",
   "styles.css",
   "app.js",
+  "assets/afdian-poster.jpeg",
   "app/index.html",
   "assets/wechat-qr.jpg",
   "assets/alipay-qr.jpg",
