@@ -6,6 +6,7 @@ create table if not exists public.commission_orders (
   project_name text not null,
   client_name text not null,
   business_type text not null,
+  production_stage text not null default '',
   source text not null,
   priority text not null,
   amount integer not null default 0,
@@ -27,6 +28,9 @@ create table if not exists public.commission_orders (
 
 alter table public.commission_orders
 add column if not exists exception_type text not null default '无';
+
+alter table public.commission_orders
+add column if not exists production_stage text not null default '';
 
 alter table public.commission_orders
 add column if not exists exception_resolution text not null default '';

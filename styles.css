@@ -208,7 +208,7 @@ h2 {
 }
 
 .filters-grid {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
 }
 
 .stats-grid {
@@ -558,6 +558,11 @@ button.chip:hover {
 .chip.business {
   background: rgba(111, 157, 156, 0.18);
   color: #295756;
+}
+
+.chip.stage {
+  background: rgba(99, 110, 165, 0.14);
+  color: #4c5688;
 }
 
 .chip.source {

@@ -5,6 +5,7 @@ const LAST_TEMPLATE_KEY = "artist-commission-last-template-v1";
 const TABLE_NAME = "commission_orders";
 
 const BUILT_IN_BUSINESS_TYPES = ["头像", "半身", "立绘", "插画", "OC设计", "服设", "橱窗", "加项"];
+const BUILT_IN_PRODUCTION_STAGES = ["草稿", "线稿", "铺色", "细化", "完稿"];
 const SOURCES = ["米画师", "画加", "私单", "橱窗", "熟人转介绍", "社媒引流"];
 const PRIORITIES = ["普通", "加急", "特快"];
 const STATUSES = ["待沟通", "排期中", "进行中", "待交付", "已完成", "已付款", "已处理"];
@@ -37,6 +38,7 @@ const DEMO_ORDERS = [
     dueDate: "2026-03-04",
     completedDate: "2026-03-04",
     status: "已付款",
+    productionStage: "完稿",
     exceptionType: "无",
     notes: "双人头像，晚上交稿。",
   },
@@ -53,6 +55,7 @@ const DEMO_ORDERS = [
     dueDate: "2026-03-09",
     completedDate: "",
     status: "进行中",
+    productionStage: "细化",
     exceptionType: "无",
     notes: "要含三视图配色说明。",
   },
@@ -69,6 +72,7 @@ const DEMO_ORDERS = [
     dueDate: "2026-03-12",
     completedDate: "",
     status: "排期中",
+    productionStage: "草稿",
     exceptionType: "无",
     notes: "先出黑白草图。",
   },
@@ -85,6 +89,7 @@ const DEMO_ORDERS = [
     dueDate: "2026-03-15",
     completedDate: "",
     status: "待交付",
+    productionStage: "铺色",
     exceptionType: "无",
     notes: "修两次内。",
   },
@@ -101,6 +106,7 @@ const DEMO_ORDERS = [
     dueDate: "2026-03-18",
     completedDate: "",
     status: "已处理",
+    productionStage: "草稿",
     exceptionType: "金主异常",
     notes: "尺寸 3:4。",
   },
@@ -117,6 +123,7 @@ const DEMO_ORDERS = [
     dueDate: "2026-03-25",
     completedDate: "",
     status: "排期中",
+    productionStage: "线稿",
     exceptionType: "无",
     notes: "可拆分尾款。",
   },
@@ -134,6 +141,7 @@ const state = {
   filters: {
     month: currentMonthKey(),
     status: "all",
+    stage: "all",
     source: "all",
     exception: "all",
     payment: "all",
@@ -156,6 +164,7 @@ const state = {
 const elements = {
   monthFilter: document.querySelector("#month-filter"),
   statusFilter: document.querySelector("#status-filter"),
+  stageFilter: document.querySelector("#stage-filter"),
   sourceFilter: document.querySelector("#source-filter"),
   exceptionFilter: document.querySelector("#exception-filter"),
   paymentFilter: document.querySelector("#payment-filter"),
@@ -173,6 +182,8 @@ const elements = {
   clientName: document.querySelector("#client-name"),
   businessType: document.querySelector("#business-type"),
   businessTypeOptions: document.querySelector("#business-type-options"),
+  productionStage: document.querySelector("#production-stage"),
+  productionStageOptions: document.querySelector("#production-stage-options"),
   source: document.querySelector("#source"),
   feeRate: document.querySelector("#fee-rate"),
   priority: document.querySelector("#priority"),
@@ -238,6 +249,7 @@ await bootstrap();
 
 async function bootstrap() {
   renderBusinessTypeOptions();
+  renderProductionStageOptions();
   fillSelect(elements.source, SOURCES);
   fillSelect(elements.priority, PRIORITIES);
   fillSelect(elements.status, STATUSES);
@@ -245,8 +257,8 @@ async function bootstrap() {
   fillSelect(elements.paymentStatus, PAYMENT_STATUSES);
   fillSelect(elements.exceptionResolution, EXCEPTION_RESOLUTIONS, false, "请选择");
   fillSelect(elements.statusFilter, STATUSES, true);
-  fillSelect(elements.sourceFilter, SOURCES, true);
   fillSelect(elements.exceptionFilter, EXCEPTION_TYPES, true);
+  fillSelect(elements.sourceFilter, SOURCES, true);
   fillSelect(elements.paymentFilter, PAYMENT_STATUSES, true);
   fillSelect(
     elements.batchExceptionType,
@@ -282,6 +294,11 @@ function bindEvents() {
     render();
   });
 
+  elements.stageFilter.addEventListener("change", (event) => {
+    state.filters.stage = event.target.value;
+    render();
+  });
+
   elements.sourceFilter.addEventListener("change", (event) => {
     state.filters.source = event.target.value;
     render();
@@ -307,6 +324,9 @@ function bindEvents() {
   elements.resetForm.addEventListener("click", resetForm);
   elements.businessType.addEventListener("blur", () => {
     elements.businessType.value = normalizeBusinessTypeValue(elements.businessType.value);
+  });
+  elements.productionStage.addEventListener("blur", () => {
+    elements.productionStage.value = normalizeProductionStageValue(elements.productionStage.value);
   });
   elements.source.addEventListener("change", (event) => {
     if (shouldAutoApplySourceFee()) {
@@ -648,6 +668,7 @@ async function handleSubmit(event) {
     projectName: elements.projectName.value.trim(),
     clientName: elements.clientName.value.trim(),
     businessType: elements.businessType.value,
+    productionStage: elements.productionStage.value,
     source: elements.source.value,
     feeRate: parseFeeRateInput(elements.feeRate.value),
     priority: elements.priority.value,
@@ -793,11 +814,13 @@ function resetForm() {
   elements.receivedAmount.value = "0";
   elements.paymentStatus.value = PAYMENT_STATUSES[0];
   elements.status.value = STATUSES[0];
+  elements.productionStage.value = "";
   elements.exceptionType.value = EXCEPTION_TYPES[0];
   elements.dueDate.value = "";
 }
 
 function render() {
+  renderProductionStageOptions();
   const orders = filteredOrders();
   renderBusinessTypeOptions();
   syncSelectionToVisible(orders);
@@ -869,7 +892,7 @@ function renderSyncPanel() {
 }
 
 function filteredOrders() {
-  const { month, status, source, exception, payment, search } = state.filters;
+  const { month, status, stage, source, exception, payment, search } = state.filters;
 
   return [...state.orders]
     .filter((order) => {
@@ -877,12 +900,13 @@ function filteredOrders() {
       return !month || dueDate.startsWith(month);
     })
     .filter((order) => status === "all" || order.status === status)
+    .filter((order) => stage === "all" || order.productionStage === stage)
     .filter((order) => source === "all" || order.source === source)
     .filter((order) => exception === "all" || order.exceptionType === exception)
     .filter((order) => payment === "all" || normalizePaymentStatus(order) === payment)
     .filter((order) => {
       if (!search) return true;
-      const haystack = [order.projectName, order.clientName, order.notes]
+      const haystack = [order.projectName, order.clientName, order.productionStage, order.notes]
         .join(" ")
         .toLowerCase();
       return haystack.includes(search);
@@ -1101,6 +1125,7 @@ function renderTable(orders) {
       <td>
         <div class="chip-group">
           ${renderStatusChip(order.status)}
+          ${order.productionStage ? renderProductionStageChip(order.productionStage) : ""}
           ${isAbnormal(order) ? renderExceptionChip(order) : ""}
           ${isOverdue(order) ? '<span class="chip overdue">逾期</span>' : ""}
         </div>
@@ -1182,6 +1207,7 @@ function fillFormFromOrder(order, title, isEditing = false) {
   elements.projectName.value = order.projectName || "";
   elements.clientName.value = order.clientName || "";
   elements.businessType.value = order.businessType || BUILT_IN_BUSINESS_TYPES[0];
+  elements.productionStage.value = order.productionStage || "";
   elements.source.value = order.source || SOURCES[0];
   elements.feeRate.value = formatFeeRatePercent(order.feeRate ?? getDefaultFeeRate(elements.source.value));
   elements.priority.value = order.priority || PRIORITIES[0];
@@ -1201,6 +1227,7 @@ function makeDuplicateTemplate(order) {
     projectName: order.projectName,
     clientName: order.clientName,
     businessType: order.businessType,
+    productionStage: order.productionStage || "",
     source: order.source,
     feeRate: order.feeRate ?? getDefaultFeeRate(order.source),
     priority: order.priority,
@@ -1489,6 +1516,10 @@ function renderStatusChip(status) {
   return `<span class="chip status ${className}">${escapeHtml(status)}</span>`;
 }
 
+function renderProductionStageChip(stage) {
+  return `<span class="chip stage">${escapeHtml(stage)}</span>`;
+}
+
 function renderExceptionChip(order) {
   if (!isAbnormal(order)) return "";
   const tone = isUnhandledAbnormal(order) ? "pending" : "resolved";
@@ -1550,6 +1581,7 @@ function exportCsv() {
     "项目名",
     "客户",
     "业务分类",
+    "制作阶段",
     "来源",
     "平台抽成(%)",
     "紧急程度",
@@ -1572,6 +1604,7 @@ function exportCsv() {
     item.projectName,
     item.clientName,
     item.businessType,
+    item.productionStage,
     item.source,
     formatFeeRatePercent(item.feeRate),
     item.priority,
@@ -1613,6 +1646,7 @@ function importJson(event) {
         if (typeof record.projectName !== "string" || !record.projectName.trim()) return false;
         if (typeof record.clientName !== "string" || !record.clientName.trim()) return false;
         if (typeof record.businessType !== "string" || !record.businessType.trim()) return false;
+        if (record.productionStage != null && typeof record.productionStage !== "string") return false;
         if (record.amount != null && (typeof record.amount !== "number" || !isFinite(record.amount))) return false;
         if (record.dueDate != null && record.dueDate !== "" && !datePattern.test(record.dueDate)) return false;
         if (record.completedDate != null && record.completedDate !== "" && !datePattern.test(record.completedDate)) return false;
@@ -1678,6 +1712,31 @@ function renderBusinessTypeOptions() {
   });
 }
 
+function renderProductionStageOptions() {
+  if (elements.productionStageOptions) {
+    elements.productionStageOptions.innerHTML = "";
+    getKnownProductionStages().forEach((value) => {
+      const option = document.createElement("option");
+      option.value = value;
+      elements.productionStageOptions.append(option);
+    });
+  }
+
+  if (elements.stageFilter) {
+    const currentValue = state.filters.stage;
+    fillSelect(elements.stageFilter, getKnownProductionStages(), true);
+    if (
+      currentValue === "all" ||
+      getKnownProductionStages().includes(currentValue)
+    ) {
+      elements.stageFilter.value = currentValue;
+    } else {
+      state.filters.stage = "all";
+      elements.stageFilter.value = "all";
+    }
+  }
+}
+
 function getKnownBusinessTypes() {
   const builtIn = [...BUILT_IN_BUSINESS_TYPES];
   const seen = new Set(builtIn);
@@ -1685,6 +1744,22 @@ function getKnownBusinessTypes() {
 
   state.orders.forEach((order) => {
     const normalized = normalizeBusinessTypeValue(order.businessType);
+    if (normalized && !seen.has(normalized)) {
+      seen.add(normalized);
+      dynamic.push(normalized);
+    }
+  });
+
+  return [...builtIn, ...dynamic];
+}
+
+function getKnownProductionStages() {
+  const builtIn = [...BUILT_IN_PRODUCTION_STAGES];
+  const seen = new Set(builtIn);
+  const dynamic = [];
+
+  state.orders.forEach((order) => {
+    const normalized = normalizeProductionStageValue(order.productionStage);
     if (normalized && !seen.has(normalized)) {
       seen.add(normalized);
       dynamic.push(normalized);
@@ -1711,6 +1786,10 @@ function normalizeBusinessTypeValue(value) {
   return String(value || "").trim().slice(0, 20);
 }
 
+function normalizeProductionStageValue(value) {
+  return String(value || "").trim().slice(0, 20);
+}
+
 function normalizeOrder(input = {}) {
   const source = input.source || SOURCES[0];
   const amount = Number(input.amount || 0);
@@ -1722,6 +1801,7 @@ function normalizeOrder(input = {}) {
       : Math.min(Math.max(Number(rawFeeRate) || 0, 0), 1);
   const exceptionType = EXCEPTION_TYPES.includes(input.exceptionType) ? input.exceptionType : "无";
   const normalizedBusinessType = normalizeBusinessTypeValue(input.businessType);
+  const normalizedProductionStage = normalizeProductionStageValue(input.productionStage);
   const exceptionResolution =
     input.exceptionResolution && EXCEPTION_RESOLUTIONS.includes(input.exceptionResolution)
       ? input.exceptionResolution
@@ -1739,6 +1819,7 @@ function normalizeOrder(input = {}) {
     projectName: input.projectName || "",
     clientName: input.clientName || "",
     businessType: normalizedBusinessType || BUILT_IN_BUSINESS_TYPES[0],
+    productionStage: normalizedProductionStage,
     source,
     priority: input.priority || PRIORITIES[0],
     amount,
@@ -1763,6 +1844,7 @@ function rowToOrder(row) {
     projectName: row.project_name,
     clientName: row.client_name,
     businessType: row.business_type,
+    productionStage: row.production_stage,
     source: row.source,
     priority: row.priority,
     amount: row.amount,
@@ -1788,6 +1870,7 @@ function orderToRow(order, userId) {
     project_name: order.projectName,
     client_name: order.clientName,
     business_type: order.businessType,
+    production_stage: order.productionStage || "",
     source: order.source,
     priority: order.priority,
     amount: Number(order.amount || 0),

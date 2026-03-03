@@ -10,7 +10,7 @@ export const SITE_CONTENT = {
     wechatQr: "./assets/wechat-qr.jpg",
     alipayQr: "./assets/alipay-qr.jpg",
   },
-  betaThanks: ["酱", "昭衍", "面包"],
+  betaThanks: ["酱", "昭衍", "面包", "春茶狸奴"],
   supporterThanks: [],
   feedbackFallback:
     "如果当前反馈提交失败，可以先通过爱发电私信，或联系 QQ 3535474804 告诉我。",

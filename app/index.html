@@ -117,6 +117,12 @@
               </select>
             </label>
             <label>
+              阶段
+              <select id="stage-filter">
+                <option value="all">全部</option>
+              </select>
+            </label>
+            <label>
               来源
               <select id="source-filter">
                 <option value="all">全部</option>
@@ -219,6 +225,17 @@
               <label>
                 状态
                 <select id="status" name="status" required></select>
+              </label>
+              <label>
+                制作阶段（可选）
+                <input
+                  id="production-stage"
+                  name="productionStage"
+                  list="production-stage-options"
+                  maxlength="20"
+                  placeholder="草稿 / 线稿 / 铺色 / 细化 / 自定义"
+                />
+                <datalist id="production-stage-options"></datalist>
               </label>
               <label>
                 异常类型
