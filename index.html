@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>画师排单台</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Commission Desk</p>
+          <h1>给小画师用的接稿排单台</h1>
+          <p class="hero-text">
+            不再靠 Excel 东拼西凑。直接记录接稿、排期、收入、来源和业务分类，顺手看月历和本月数据。
+          </p>
+          <div class="hero-actions">
+            <button id="seed-demo" class="ghost-button">载入演示数据</button>
+            <button id="export-json" class="primary-button">导出 JSON</button>
+            <label class="import-button">
+              导入 JSON
+              <input id="import-json" type="file" accept="application/json" hidden />
+            </label>
+            <button id="export-csv" class="ghost-button">导出 CSV</button>
+          </div>
+        </div>
+        <div class="hero-card">
+          <p>适合记录</p>
+          <ul>
+            <li>米画师 / 画加 / 私单</li>
+            <li>头像 / 立绘 / OC / 服设</li>
+            <li>普通 / 加急 / 特快</li>
+          </ul>
+          <p class="hero-card-note">支持本地模式，也支持接入 Supabase 做账号登录和云端同步。</p>
+        </div>
+      </header>
+
+      <main class="dashboard">
+        <section class="panel sync-panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-tag">同步</p>
+              <h2>账号与云端数据</h2>
+            </div>
+          </div>
+          <div class="sync-grid">
+            <article class="sync-card">
+              <p class="sync-label">当前模式</p>
+              <strong id="sync-mode-label">检测中</strong>
+              <p id="sync-mode-note" class="legend-row">正在检查环境配置。</p>
+              <div id="sync-user" class="sync-user"></div>
+            </article>
+            <form id="auth-form" class="auth-form">
+              <label>
+                邮箱
+                <input id="auth-email" type="email" autocomplete="email" />
+              </label>
+              <label>
+                密码
+                <input id="auth-password" type="password" minlength="6" autocomplete="current-password" />
+              </label>
+              <div class="hero-actions">
+                <button type="button" id="sign-in" class="primary-button">登录</button>
+                <button type="button" id="sign-up" class="ghost-button">注册</button>
+                <button type="button" id="sign-out" class="ghost-button">退出登录</button>
+              </div>
+              <p id="auth-message" class="legend-row">
+                配好 Supabase 环境变量后，画师就能各自登录并保存自己的数据。
+              </p>
+            </form>
+          </div>
+        </section>
+
+        <section class="panel filters-panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-tag">筛选</p>
+              <h2>查看范围</h2>
+            </div>
+          </div>
+          <div class="filters-grid">
+            <label>
+              月份
+              <input id="month-filter" type="month" />
+            </label>
+            <label>
+              状态
+              <select id="status-filter">
+                <option value="all">全部</option>
+              </select>
+            </label>
+            <label>
+              来源
+              <select id="source-filter">
+                <option value="all">全部</option>
+              </select>
+            </label>
+            <label>
+              收款
+              <select id="payment-filter">
+                <option value="all">全部</option>
+              </select>
+            </label>
+            <label>
+              搜索
+              <input
+                id="search-filter"
+                type="search"
+                placeholder="项目名 / 客户 / 备注"
+              />
+            </label>
+          </div>
+        </section>
+
+        <section class="stats-grid" id="stats-grid"></section>
+
+        <section class="content-grid">
+          <section class="panel form-panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-tag">录入</p>
+                <h2 id="form-title">新建稿件</h2>
+              </div>
+            </div>
+            <form id="order-form" class="order-form">
+              <input id="order-id" type="hidden" />
+              <label>
+                项目名
+                <input id="project-name" name="projectName" required maxlength="40" />
+              </label>
+              <label>
+                客户 / 老板 ID
+                <input id="client-name" name="clientName" required maxlength="40" />
+              </label>
+              <label>
+                业务分类
+                <select id="business-type" name="businessType" required></select>
+              </label>
+              <label>
+                来源
+                <select id="source" name="source" required></select>
+              </label>
+              <label>
+                紧急程度
+                <select id="priority" name="priority" required></select>
+              </label>
+              <label>
+                总稿费
+                <input id="amount" name="amount" type="number" min="0" step="1" required />
+              </label>
+              <label>
+                已收金额
+                <input
+                  id="received-amount"
+                  name="receivedAmount"
+                  type="number"
+                  min="0"
+                  step="1"
+                  required
+                />
+              </label>
+              <label>
+                收款状态
+                <select id="payment-status" name="paymentStatus" required></select>
+              </label>
+              <label>
+                排期日期
+                <input id="due-date" name="dueDate" type="date" required />
+              </label>
+              <label>
+                完成日期
+                <input id="completed-date" name="completedDate" type="date" />
+              </label>
+              <label>
+                状态
+                <select id="status" name="status" required></select>
+              </label>
+              <label class="full-width">
+                备注
+                <textarea id="notes" name="notes" rows="3" maxlength="140"></textarea>
+              </label>
+              <div class="form-actions full-width">
+                <button type="submit" class="primary-button">保存稿件</button>
+                <button type="button" id="reset-form" class="ghost-button">清空表单</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="panel analytics-panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-tag">分析</p>
+                <h2>业务结构</h2>
+              </div>
+            </div>
+            <div id="breakdown-list" class="breakdown-list"></div>
+            <div class="legend-row">
+              <span>看哪个分类更赚钱，方便调整主营业方向。</span>
+            </div>
+          </section>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-tag">排期</p>
+              <h2>月历视图</h2>
+            </div>
+            <div class="calendar-nav">
+              <button id="prev-month" class="ghost-button small-button">上个月</button>
+              <strong id="calendar-title"></strong>
+              <button id="next-month" class="ghost-button small-button">下个月</button>
+            </div>
+          </div>
+          <div class="calendar-weekdays">
+            <span>日</span>
+            <span>一</span>
+            <span>二</span>
+            <span>三</span>
+            <span>四</span>
+            <span>五</span>
+            <span>六</span>
+          </div>
+          <div id="calendar-grid" class="calendar-grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-tag">清单</p>
+              <h2>稿件列表</h2>
+            </div>
+            <div class="table-actions">
+              <span id="table-summary"></span>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>排期日</th>
+                  <th>客户</th>
+                  <th>项目</th>
+                  <th>业务</th>
+                  <th>来源</th>
+                  <th>优先级</th>
+                  <th>稿费</th>
+                  <th>收款</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="orders-table-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <template id="stat-card-template">
+      <article class="stat-card">
+        <p class="stat-label"></p>
+        <strong class="stat-value"></strong>
+        <span class="stat-note"></span>
+      </article>
+    </template>
+
+    <script src="./env.js"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
