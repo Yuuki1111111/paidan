@@ -104,6 +104,7 @@ const config = {
 
 const state = {
   orders: [],
+  localBackupOrders: loadLocalOrders(),
   filters: {
     month: currentMonthKey(),
     status: "all",
@@ -119,6 +120,7 @@ const state = {
   user: null,
   busy: false,
   recoveryMode: detectFlowType() === "recovery",
+  usingLocalBackup: false,
 };
 
 const elements = {
@@ -192,7 +194,7 @@ async function bootstrap() {
     initializeSupabase();
     await restoreSession();
   } else {
-    state.orders = loadLocalOrders();
+    state.orders = state.localBackupOrders;
     updateAuthUi("当前是本地模式。未配置 Supabase 时，数据只保存在浏览器。");
   }
 
@@ -280,6 +282,10 @@ function initializeSupabase() {
       if (detectFlowType() === "signup") {
         updateAuthUi("邮箱验证成功，已经为你登录。");
         clearAuthRedirect();
+      } else if (state.usingLocalBackup) {
+        updateAuthUi(
+          `已登录 ${state.user.email}。当前云端还没有数据，先显示这台设备里的旧记录；你后续新增、编辑或删除时会自动同步到云端。`,
+        );
       } else if (!state.recoveryMode) {
         updateAuthUi(`已登录 ${state.user.email}，当前数据走 Supabase 云端同步。`);
       }
@@ -314,6 +320,10 @@ async function restoreSession() {
     } else if (detectFlowType() === "signup") {
       updateAuthUi("邮箱验证成功，已经为你登录。");
       clearAuthRedirect();
+    } else if (state.usingLocalBackup) {
+      updateAuthUi(
+        `已登录 ${state.user.email}。当前云端还没有数据，先显示这台设备里的旧记录；你后续新增、编辑或删除时会自动同步到云端。`,
+      );
     } else {
       updateAuthUi(`已登录 ${state.user.email}，当前数据走 Supabase 云端同步。`);
     }
@@ -507,7 +517,17 @@ async function loadRemoteOrders() {
     return;
   }
 
-  state.orders = data.map(rowToOrder);
+  const remoteOrders = data.map(rowToOrder);
+  state.localBackupOrders = loadLocalOrders();
+
+  if (!remoteOrders.length && state.localBackupOrders.length) {
+    state.orders = state.localBackupOrders;
+    state.usingLocalBackup = true;
+    return;
+  }
+
+  state.orders = remoteOrders;
+  state.usingLocalBackup = false;
 }
 
 async function handleSubmit(event) {
@@ -563,6 +583,16 @@ function saveLocalOrder(order) {
 
 async function saveRemoteOrder(order) {
   assertCloudUser();
+
+  if (state.usingLocalBackup) {
+    const nextOrders = state.editingId
+      ? state.orders.map((item) => (item.id === state.editingId ? order : item))
+      : [order, ...state.orders];
+    await replaceRemoteOrders(nextOrders);
+    state.usingLocalBackup = false;
+    return;
+  }
+
   const payload = orderToRow(order, state.user.id);
 
   if (state.editingId) {
@@ -652,11 +682,14 @@ function render() {
 
 function renderSyncPanel() {
   const canEditOrders = state.mode === "local" || Boolean(state.user);
+  const hasActiveUser = Boolean(state.user);
 
   if (state.mode === "cloud") {
     elements.syncModeLabel.textContent = state.user ? "云端同步已连接" : "云端同步待登录";
     elements.syncModeNote.textContent = state.user
-      ? "当前账号的数据会实时读写 Supabase。"
+      ? state.usingLocalBackup
+        ? "云端账号已经登录，但当前云端还没有数据，正在显示这台设备里的旧记录。"
+        : "当前账号的数据会实时读写 Supabase。"
       : "配置已经就绪，登录后每个画师只会看到自己的数据。";
     elements.syncUser.innerHTML = state.user
       ? `<span class="chip status done">${escapeHtml(state.user.email)}</span>`
@@ -671,12 +704,12 @@ function renderSyncPanel() {
   elements.recoveryPanel.classList.toggle("is-hidden", !state.recoveryMode);
 
   const authDisabled = state.mode !== "cloud" || state.busy;
-  elements.authEmail.disabled = authDisabled || state.recoveryMode;
-  elements.authPassword.disabled = authDisabled || state.recoveryMode;
-  elements.signIn.disabled = authDisabled || state.recoveryMode;
-  elements.signUp.disabled = authDisabled || state.recoveryMode;
-  elements.resendSignup.disabled = authDisabled || state.recoveryMode;
-  elements.forgotPassword.disabled = authDisabled || state.recoveryMode;
+  elements.authEmail.disabled = authDisabled || state.recoveryMode || hasActiveUser;
+  elements.authPassword.disabled = authDisabled || state.recoveryMode || hasActiveUser;
+  elements.signIn.disabled = authDisabled || state.recoveryMode || hasActiveUser;
+  elements.signUp.disabled = authDisabled || state.recoveryMode || hasActiveUser;
+  elements.resendSignup.disabled = authDisabled || state.recoveryMode || hasActiveUser;
+  elements.forgotPassword.disabled = authDisabled || state.recoveryMode || hasActiveUser;
   elements.signOut.disabled = state.mode !== "cloud" || !state.user || state.busy;
   elements.resetPassword.disabled = state.mode !== "cloud" || !state.recoveryMode || state.busy;
   elements.resetPasswordConfirm.disabled =
@@ -694,7 +727,10 @@ function filteredOrders() {
   const { month, status, source, payment, search } = state.filters;
 
   return [...state.orders]
-    .filter((order) => !month || order.dueDate.startsWith(month))
+    .filter((order) => {
+      const dueDate = String(order.dueDate || "");
+      return !month || dueDate.startsWith(month);
+    })
     .filter((order) => status === "all" || order.status === status)
     .filter((order) => source === "all" || order.source === source)
     .filter((order) => payment === "all" || normalizePaymentStatus(order) === payment)
@@ -705,7 +741,7 @@ function filteredOrders() {
         .toLowerCase();
       return haystack.includes(search);
     })
-    .sort((left, right) => left.dueDate.localeCompare(right.dueDate));
+    .sort((left, right) => String(left.dueDate || "").localeCompare(String(right.dueDate || "")));
 }
 
 function renderStats(orders) {
@@ -810,7 +846,7 @@ function renderCalendar(orders) {
     const isOutside = current.getMonth() !== monthDate.getMonth();
     cell.className = `calendar-cell${isOutside ? " is-outside" : ""}`;
 
-    const dayOrders = orders.filter((order) => order.dueDate === formatDateInput(current));
+    const dayOrders = orders.filter((order) => String(order.dueDate || "") === formatDateInput(current));
     cell.innerHTML = `
       <span class="calendar-day">${current.getDate()}</span>
       <div class="calendar-items">
@@ -918,13 +954,19 @@ async function deleteOrder(id) {
   try {
     if (state.mode === "cloud") {
       assertCloudUser();
-      const { error } = await state.supabase
-        .from(TABLE_NAME)
-        .delete()
-        .eq("id", id)
-        .eq("user_id", state.user.id);
-      if (error) throw error;
-      await loadRemoteOrders();
+      if (state.usingLocalBackup) {
+        const nextOrders = state.orders.filter((item) => item.id !== id);
+        await replaceRemoteOrders(nextOrders);
+        state.usingLocalBackup = false;
+      } else {
+        const { error } = await state.supabase
+          .from(TABLE_NAME)
+          .delete()
+          .eq("id", id)
+          .eq("user_id", state.user.id);
+        if (error) throw error;
+        await loadRemoteOrders();
+      }
     } else {
       state.orders = state.orders.filter((item) => item.id !== id);
       persistLocalOrders(state.orders);
@@ -1151,6 +1193,7 @@ function mapAuthError(error) {
 }
 
 function isOverdue(order) {
+  if (!order.dueDate) return false;
   const today = formatDateInput(new Date());
   return order.dueDate < today && order.status !== "已完成" && order.status !== "已付款";
 }
@@ -1168,6 +1211,7 @@ function loadLocalOrders() {
 
 function persistLocalOrders(orders) {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(orders));
+  state.localBackupOrders = orders.map((item) => normalizeOrder(item));
 }
 
 function sumBy(list, key) {
