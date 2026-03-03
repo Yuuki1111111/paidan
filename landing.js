@@ -78,7 +78,7 @@ function renderSponsorMethods() {
   const methods = [
     {
       title: "爱发电",
-      body: "作为长期赞助入口，适合挂在公开页面上。",
+      body: "想长期支持画了么继续更新的话，可以在爱发电请我喝杯奶茶。",
       action: `<a class="landing-button secondary" href="${escapeHtml(
         SITE_CONTENT.sponsor.afdianUrl || "#",
       )}" target="_blank" rel="noreferrer">打开爱发电</a>`,
@@ -87,14 +87,14 @@ function renderSponsorMethods() {
       title: "微信赞赏码",
       body: SITE_CONTENT.sponsor.wechatQr
         ? `<img src="${escapeHtml(SITE_CONTENT.sponsor.wechatQr)}" alt="微信赞赏码" class="qr-image" />`
-        : "把微信赞赏码图片路径填到 site-content.js 里，这里就会自动显示。",
+        : "微信赞赏码准备中。",
       action: "",
     },
     {
       title: "支付宝赞赏码",
       body: SITE_CONTENT.sponsor.alipayQr
         ? `<img src="${escapeHtml(SITE_CONTENT.sponsor.alipayQr)}" alt="支付宝赞赏码" class="qr-image" />`
-        : "把支付宝赞赏码图片路径填到 site-content.js 里，这里就会自动显示。",
+        : "支付宝赞赏码准备中。",
       action: "",
     },
   ];
