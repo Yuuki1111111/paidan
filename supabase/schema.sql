@@ -14,10 +14,18 @@ create table if not exists public.commission_orders (
   due_date date not null,
   completed_date date,
   status text not null default '待沟通',
+  exception_type text not null default '无',
   notes text not null default '',
+  fee_rate numeric,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.commission_orders
+add column if not exists exception_type text not null default '无';
+
+alter table public.commission_orders
+add column if not exists fee_rate numeric;
 
 create or replace function public.set_updated_at()
 returns trigger

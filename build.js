@@ -22,10 +22,6 @@ writeFileSync(
   "utf8",
 );
 
-if (existsSync(join(root, "README.md"))) {
-  copyFileSync(join(root, "README.md"), join(dist, "README.md"));
-}
-
 if (existsSync(join(root, "env.js"))) {
   const sourceEnv = readFileSync(join(root, "env.js"), "utf8");
   if (!envConfig.SUPABASE_URL && !envConfig.SUPABASE_ANON_KEY) {

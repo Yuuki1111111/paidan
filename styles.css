@@ -178,11 +178,11 @@ h2 {
 }
 
 .filters-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .stats-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .stat-card {
@@ -298,6 +298,16 @@ textarea:focus {
 
 textarea {
   resize: vertical;
+}
+
+input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 6px;
+  accent-color: var(--brand);
+  transform: none;
+  box-shadow: none;
 }
 
 .full-width {
@@ -431,9 +441,32 @@ button:disabled,
   overflow-x: auto;
 }
 
+.batch-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border: 1px dashed rgba(216, 107, 45, 0.26);
+  border-radius: 18px;
+  background: rgba(216, 107, 45, 0.08);
+}
+
+.batch-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.batch-select {
+  min-width: 148px;
+}
+
 table {
   width: 100%;
-  min-width: 940px;
+  min-width: 1080px;
   border-collapse: collapse;
 }
 
@@ -449,6 +482,11 @@ th {
   color: var(--muted);
   font-size: 13px;
   font-weight: 600;
+}
+
+.checkbox-col {
+  width: 48px;
+  text-align: center;
 }
 
 .chip-group {
@@ -492,6 +530,21 @@ th {
   color: #8f3f38;
 }
 
+.chip.status.handled {
+  background: rgba(111, 157, 156, 0.18);
+  color: #295756;
+}
+
+.chip.exception {
+  background: rgba(92, 58, 34, 0.12);
+  color: #6b4527;
+}
+
+.chip.exception.abnormal {
+  background: rgba(139, 83, 43, 0.18);
+  color: #7a4215;
+}
+
 .chip.payment {
   background: rgba(48, 36, 27, 0.08);
   color: var(--ink);
@@ -518,6 +571,7 @@ th {
 
 .row-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -527,6 +581,7 @@ th {
   padding: 0;
   color: var(--brand-deep);
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .empty-state {
@@ -541,6 +596,10 @@ th {
   .stats-grid,
   .filters-grid {
     grid-template-columns: 1fr;
+  }
+
+  .batch-actions {
+    align-items: flex-start;
   }
 }
 

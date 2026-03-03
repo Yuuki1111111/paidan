@@ -123,6 +123,12 @@
               </select>
             </label>
             <label>
+              异常
+              <select id="exception-filter">
+                <option value="all">全部</option>
+              </select>
+            </label>
+            <label>
               收款
               <select id="payment-filter">
                 <option value="all">全部</option>
@@ -168,6 +174,10 @@
                 <select id="source" name="source" required></select>
               </label>
               <label>
+                平台抽成 (%)
+                <input id="fee-rate" name="feeRate" type="number" min="0" max="100" step="0.01" />
+              </label>
+              <label>
                 紧急程度
                 <select id="priority" name="priority" required></select>
               </label>
@@ -202,12 +212,17 @@
                 状态
                 <select id="status" name="status" required></select>
               </label>
+              <label>
+                异常类型
+                <select id="exception-type" name="exceptionType" required></select>
+              </label>
               <label class="full-width">
                 备注
                 <textarea id="notes" name="notes" rows="3" maxlength="140"></textarea>
               </label>
               <div class="form-actions full-width">
                 <button type="submit" class="primary-button">保存稿件</button>
+                <button type="button" id="duplicate-last" class="ghost-button">重复上一单</button>
                 <button type="button" id="reset-form" class="ghost-button">清空表单</button>
               </div>
             </form>
@@ -261,10 +276,24 @@
               <span id="table-summary"></span>
             </div>
           </div>
+          <div id="batch-actions" class="batch-actions is-hidden">
+            <span id="batch-summary"></span>
+            <div class="batch-buttons">
+              <button type="button" id="batch-mark-done" class="ghost-button small-button">批量完成</button>
+              <button type="button" id="batch-mark-paid" class="ghost-button small-button">批量已付款</button>
+              <button type="button" id="batch-mark-handled" class="ghost-button small-button">批量已处理</button>
+              <select id="batch-exception-type" class="batch-select" aria-label="批量异常类型"></select>
+              <button type="button" id="apply-batch-exception" class="ghost-button small-button">应用异常</button>
+              <button type="button" id="clear-selection" class="ghost-button small-button">取消选择</button>
+            </div>
+          </div>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
+                  <th class="checkbox-col">
+                    <input id="select-all-orders" type="checkbox" aria-label="全选当前列表" />
+                  </th>
                   <th>截稿日</th>
                   <th>客户</th>
                   <th>项目</th>
