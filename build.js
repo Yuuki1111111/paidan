@@ -16,6 +16,8 @@ for (const file of [
   "styles.css",
   "app.js",
   "app/index.html",
+  "assets/wechat-qr.jpg",
+  "assets/alipay-qr.jpg",
 ]) {
   const target = join(dist, file);
   mkdirSync(dirname(target), { recursive: true });

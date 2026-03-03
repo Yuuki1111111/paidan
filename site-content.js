@@ -4,13 +4,13 @@ export const SITE_CONTENT = {
   supportMessage:
     "主功能永久免费。如果它帮你省下了排单、算账和翻表格的时间，欢迎通过赞助支持持续维护。",
   sponsor: {
-    afdianUrl: "https://afdian.com/",
+    afdianUrl: "https://afdian.com/a/yuukihualema",
     afdianLabel: "去爱发电支持",
-    wechatQr: "",
-    alipayQr: "",
+    wechatQr: "./assets/wechat-qr.jpg",
+    alipayQr: "./assets/alipay-qr.jpg",
   },
-  betaThanks: ["内测画师 A", "内测画师 B", "内测画师 C"],
-  supporterThanks: ["第一位赞助者（待填写）"],
+  betaThanks: ["酱", "昭衍", "面包"],
+  supporterThanks: [],
   feedbackFallback:
-    "如果当前反馈提交失败，可以先通过爱发电私信、群聊或你熟悉的联系方式告诉我。",
+    "如果当前反馈提交失败，可以先通过爱发电私信，或联系 QQ 3535474804 告诉我。",
 };
