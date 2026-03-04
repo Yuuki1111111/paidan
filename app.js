@@ -2,6 +2,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 const STORAGE_KEY = "artist-commission-desk-v1";
 const LAST_TEMPLATE_KEY = "artist-commission-last-template-v1";
+const AUTH_COOLDOWN_KEY = "artist-commission-auth-cooldowns-v1";
 const TABLE_NAME = "commission_orders";
 
 const BUILT_IN_BUSINESS_TYPES = [
@@ -175,6 +176,7 @@ const rawConfig = window.APP_CONFIG || {};
 const config = {
   supabaseUrl: rawConfig.SUPABASE_URL || "",
   supabaseAnonKey: rawConfig.SUPABASE_ANON_KEY || "",
+  turnstileSiteKey: rawConfig.TURNSTILE_SITE_KEY || "",
 };
 
 const state = {
@@ -198,12 +200,19 @@ const state = {
   busy: false,
   recoveryMode: detectFlowType() === "recovery",
   usingLocalBackup: false,
+  authCooldowns: loadAuthCooldowns(),
+  turnstileStatus: hasTurnstileConfig() ? "idle" : "missing",
+  turnstileToken: "",
+  turnstileWidgetId: null,
   selectedOrderIds: new Set(),
   lastTemplate: loadLastTemplate(),
   exceptionDialogOrderId: null,
   stageDialogOrderId: null,
   stageDialogDraft: "",
 };
+
+let authCooldownTicker = null;
+let turnstileScriptPromise = null;
 
 const elements = {
   monthFilter: document.querySelector("#month-filter"),
@@ -298,6 +307,9 @@ const elements = {
   resetPasswordConfirm: document.querySelector("#reset-password-confirm"),
   updatePassword: document.querySelector("#update-password"),
   authMessage: document.querySelector("#auth-message"),
+  turnstilePanel: document.querySelector("#turnstile-panel"),
+  turnstileWidget: document.querySelector("#turnstile-widget"),
+  turnstileNote: document.querySelector("#turnstile-note"),
   syncModeLabel: document.querySelector("#sync-mode-label"),
   syncModeNote: document.querySelector("#sync-mode-note"),
   syncUser: document.querySelector("#sync-user"),
@@ -325,11 +337,13 @@ async function bootstrap() {
   );
 
   bindEvents();
+  syncAuthCooldownTicker();
   resetForm();
   render();
 
   if (state.mode === "cloud") {
     initializeSupabase();
+    void initializeTurnstile();
     await restoreSession();
   } else {
     state.orders = state.localBackupOrders;
@@ -341,6 +355,10 @@ async function bootstrap() {
 
 function bindEvents() {
   elements.monthFilter.value = state.filters.month;
+
+  elements.authEmail.addEventListener("input", () => {
+    renderSyncPanel();
+  });
 
   elements.monthFilter.addEventListener("input", (event) => {
     state.filters.month = event.target.value;
@@ -496,6 +514,134 @@ function initializeSupabase() {
   });
 }
 
+async function initializeTurnstile() {
+  if (state.mode !== "cloud") {
+    state.turnstileStatus = hasTurnstileConfig() ? "idle" : "missing";
+    state.turnstileToken = "";
+    renderSyncPanel();
+    return;
+  }
+
+  if (!hasTurnstileConfig()) {
+    state.turnstileStatus = "missing";
+    state.turnstileToken = "";
+    renderSyncPanel();
+    return;
+  }
+
+  try {
+    await ensureTurnstileScript();
+    mountTurnstileWidget();
+    if (!state.turnstileToken) {
+      state.turnstileStatus = "ready";
+    }
+  } catch {
+    state.turnstileStatus = "error";
+    state.turnstileToken = "";
+  }
+
+  renderSyncPanel();
+}
+
+function ensureTurnstileScript() {
+  if (window.turnstile?.render) {
+    return Promise.resolve(window.turnstile);
+  }
+
+  if (turnstileScriptPromise) {
+    return turnstileScriptPromise;
+  }
+
+  state.turnstileStatus = "loading";
+  renderSyncPanel();
+
+  turnstileScriptPromise = new Promise((resolve, reject) => {
+    const existingScript = document.querySelector('script[data-turnstile-script="true"]');
+    const handleLoad = () => resolve(window.turnstile);
+    const handleError = () => reject(new Error("Turnstile failed to load."));
+
+    if (existingScript) {
+      existingScript.addEventListener("load", handleLoad, { once: true });
+      existingScript.addEventListener("error", handleError, { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+    script.async = true;
+    script.defer = true;
+    script.dataset.turnstileScript = "true";
+    script.addEventListener("load", handleLoad, { once: true });
+    script.addEventListener("error", handleError, { once: true });
+    document.head.append(script);
+  }).catch((error) => {
+    turnstileScriptPromise = null;
+    throw error;
+  });
+
+  return turnstileScriptPromise;
+}
+
+function mountTurnstileWidget() {
+  if (!elements.turnstileWidget || state.turnstileWidgetId !== null || !window.turnstile?.render) {
+    return;
+  }
+
+  elements.turnstileWidget.innerHTML = "";
+  state.turnstileWidgetId = window.turnstile.render(elements.turnstileWidget, {
+    sitekey: config.turnstileSiteKey,
+    theme: "light",
+    size: "flexible",
+    action: "auth_email",
+    callback(token) {
+      state.turnstileToken = token;
+      state.turnstileStatus = "verified";
+      renderSyncPanel();
+    },
+    "expired-callback"() {
+      state.turnstileToken = "";
+      state.turnstileStatus = "expired";
+      renderSyncPanel();
+    },
+    "error-callback"() {
+      state.turnstileToken = "";
+      state.turnstileStatus = "error";
+      renderSyncPanel();
+    },
+  });
+}
+
+async function getTurnstileToken() {
+  if (!hasTurnstileConfig()) {
+    updateAuthUi(getTurnstileActionMessage());
+    renderSyncPanel();
+    return null;
+  }
+
+  if (!window.turnstile?.render || state.turnstileWidgetId === null) {
+    await initializeTurnstile();
+  }
+
+  if (!state.turnstileToken) {
+    updateAuthUi(getTurnstileActionMessage());
+    renderSyncPanel();
+    return null;
+  }
+
+  return state.turnstileToken;
+}
+
+function refreshTurnstileToken() {
+  if (state.turnstileWidgetId === null || !window.turnstile?.reset) {
+    return;
+  }
+
+  state.turnstileToken = "";
+  state.turnstileStatus = "ready";
+  window.turnstile.reset(state.turnstileWidgetId);
+  renderSyncPanel();
+}
+
 async function applyAuthSessionState() {
   if (state.user) {
     await loadRemoteOrders();
@@ -515,7 +661,7 @@ async function applyAuthSessionState() {
       updateAuthUi("邮箱验证链接已打开，请返回登录状态继续使用。");
       clearAuthRedirect();
     } else {
-      updateAuthUi("云端模式已开启。登录后每个画师只会看到自己的数据。");
+      updateAuthUi(getLoggedOutAuthMessage());
     }
   }
 
@@ -550,7 +696,7 @@ async function restoreSession() {
     updateAuthUi("已打开重置密码链接，请输入新密码。");
   } else {
     state.orders = [];
-    updateAuthUi("云端模式已开启。登录后每个画师只会看到自己的数据。");
+    updateAuthUi(getLoggedOutAuthMessage());
   }
 }
 
@@ -566,6 +712,15 @@ async function signUpWithEmail() {
     updateAuthUi("先填写邮箱和密码。");
     return;
   }
+  if (hasAuthCooldown("signup", email)) {
+    updateAuthUi(getAuthCooldownMessage("signup", email));
+    renderSyncPanel();
+    return;
+  }
+  const captchaToken = await getTurnstileToken();
+  if (!captchaToken) {
+    return;
+  }
 
   setBusy(true);
   const { data, error } = await state.supabase.auth.signUp({
@@ -573,19 +728,23 @@ async function signUpWithEmail() {
     password,
     options: {
       emailRedirectTo: currentSiteUrl(),
+      captchaToken,
     },
   });
   setBusy(false);
+  refreshTurnstileToken();
 
   if (error) {
-    updateAuthUi(mapAuthError(error));
+    handleAuthActionError(error, { action: "signup", email });
     return;
   }
 
   if (data.session) {
     updateAuthUi("注册成功，已自动登录。");
   } else {
-    updateAuthUi("注册成功，请去邮箱点验证链接。没收到可以点“重发验证邮件”。");
+    startAuthCooldown("signup", email);
+    startAuthCooldown("resendSignup", email);
+    updateAuthUi("注册成功，请去邮箱点验证链接。60 秒内不要重复点注册；没收到再点“重发验证邮件”。");
   }
 }
 
@@ -600,6 +759,15 @@ async function resendSignupEmail() {
     updateAuthUi("先填写要验证的邮箱。");
     return;
   }
+  if (hasAuthCooldown("resendSignup", email)) {
+    updateAuthUi(getAuthCooldownMessage("resendSignup", email));
+    renderSyncPanel();
+    return;
+  }
+  const captchaToken = await getTurnstileToken();
+  if (!captchaToken) {
+    return;
+  }
 
   setBusy(true);
   const { error } = await state.supabase.auth.resend({
@@ -607,14 +775,18 @@ async function resendSignupEmail() {
     email,
     options: {
       emailRedirectTo: currentSiteUrl(),
+      captchaToken,
     },
   });
   setBusy(false);
+  refreshTurnstileToken();
 
   if (error) {
-    updateAuthUi(mapAuthError(error));
+    handleAuthActionError(error, { action: "resendSignup", email });
   } else {
-    updateAuthUi("验证邮件已重新发送，请检查邮箱。");
+    startAuthCooldown("signup", email);
+    startAuthCooldown("resendSignup", email);
+    updateAuthUi("验证邮件已重新发送，请检查邮箱。60 秒内先别重复点。");
   }
 }
 
@@ -629,17 +801,29 @@ async function requestPasswordReset() {
     updateAuthUi("先填写注册邮箱，我才能发重置邮件。");
     return;
   }
+  if (hasAuthCooldown("forgotPassword", email)) {
+    updateAuthUi(getAuthCooldownMessage("forgotPassword", email));
+    renderSyncPanel();
+    return;
+  }
+  const captchaToken = await getTurnstileToken();
+  if (!captchaToken) {
+    return;
+  }
 
   setBusy(true);
   const { error } = await state.supabase.auth.resetPasswordForEmail(email, {
     redirectTo: currentSiteUrl(),
+    captchaToken,
   });
   setBusy(false);
+  refreshTurnstileToken();
 
   if (error) {
-    updateAuthUi(mapAuthError(error));
+    handleAuthActionError(error, { action: "forgotPassword", email });
   } else {
-    updateAuthUi("重置密码邮件已发送，请去邮箱点开链接后回到当前页面。");
+    startAuthCooldown("forgotPassword", email);
+    updateAuthUi("重置密码邮件已发送，请去邮箱点开链接后回到当前页面。60 秒内先别重复点。");
   }
 }
 
@@ -933,6 +1117,12 @@ function render() {
 function renderSyncPanel() {
   const canEditOrders = state.mode === "local" || Boolean(state.user);
   const hasActiveUser = Boolean(state.user);
+  const authEmail = elements.authEmail.value.trim();
+  const signupCooldown = getAuthCooldownRemaining("signup", authEmail);
+  const resendCooldown = getAuthCooldownRemaining("resendSignup", authEmail);
+  const forgotPasswordCooldown = getAuthCooldownRemaining("forgotPassword", authEmail);
+  const showTurnstilePanel = state.mode === "cloud" && !state.recoveryMode && !hasActiveUser;
+  const protectedAuthReady = !showTurnstilePanel || Boolean(state.turnstileToken);
 
   if (state.mode === "cloud") {
     elements.syncModeLabel.textContent = state.user ? "云端同步已连接" : "云端同步待登录";
@@ -940,7 +1130,9 @@ function renderSyncPanel() {
       ? state.usingLocalBackup
         ? "云端账号已经登录，但当前云端还没有数据，正在显示这台设备里的旧记录。"
         : "当前账号的数据会实时读写 Supabase。"
-      : "配置已经就绪，登录后每个画师只会看到自己的数据。";
+      : hasTurnstileConfig()
+        ? "配置已经就绪，登录后每个画师只会看到自己的数据。"
+        : "云端配置已就绪，但还没配置 Cloudflare Turnstile；当前只能登录，不能注册、重发验证邮件或找回密码。";
     elements.syncUser.innerHTML = state.user
       ? `<span class="chip status done">${escapeHtml(state.user.email)}</span>`
       : '<span class="chip status waiting">未登录</span>';
@@ -957,14 +1149,39 @@ function renderSyncPanel() {
   elements.authEmail.disabled = authDisabled || state.recoveryMode || hasActiveUser;
   elements.authPassword.disabled = authDisabled || state.recoveryMode || hasActiveUser;
   elements.signIn.disabled = authDisabled || state.recoveryMode || hasActiveUser;
-  elements.signUp.disabled = authDisabled || state.recoveryMode || hasActiveUser;
-  elements.resendSignup.disabled = authDisabled || state.recoveryMode || hasActiveUser;
-  elements.forgotPassword.disabled = authDisabled || state.recoveryMode || hasActiveUser;
+  elements.signUp.disabled =
+    authDisabled || state.recoveryMode || hasActiveUser || signupCooldown > 0 || !protectedAuthReady;
+  elements.resendSignup.disabled =
+    authDisabled || state.recoveryMode || hasActiveUser || resendCooldown > 0 || !protectedAuthReady;
+  elements.forgotPassword.disabled =
+    authDisabled ||
+    state.recoveryMode ||
+    hasActiveUser ||
+    forgotPasswordCooldown > 0 ||
+    !protectedAuthReady;
   elements.signOut.disabled = state.mode !== "cloud" || !state.user || state.busy;
   elements.resetPassword.disabled = state.mode !== "cloud" || !state.recoveryMode || state.busy;
   elements.resetPasswordConfirm.disabled =
     state.mode !== "cloud" || !state.recoveryMode || state.busy;
   elements.updatePassword.disabled = state.mode !== "cloud" || !state.recoveryMode || state.busy;
+  elements.signUp.textContent = getAuthActionLabel("signup", signupCooldown);
+  elements.resendSignup.textContent = getAuthActionLabel("resendSignup", resendCooldown);
+  elements.forgotPassword.textContent = getAuthActionLabel("forgotPassword", forgotPasswordCooldown);
+  elements.turnstilePanel.classList.toggle("is-hidden", !showTurnstilePanel);
+  elements.turnstileWidget.classList.toggle(
+    "is-hidden",
+    !showTurnstilePanel || !hasTurnstileConfig() || state.turnstileStatus === "error",
+  );
+  elements.turnstileNote.textContent = getTurnstileNote();
+
+  if (
+    showTurnstilePanel &&
+    hasTurnstileConfig() &&
+    state.turnstileWidgetId === null &&
+    state.turnstileStatus === "idle"
+  ) {
+    void initializeTurnstile();
+  }
 
   elements.form.querySelectorAll("input, select, textarea, button").forEach((field) => {
     field.disabled = !canEditOrders || state.busy;
@@ -2110,8 +2327,44 @@ function setBusy(nextBusy) {
   renderSyncPanel();
 }
 
+function hasTurnstileConfig() {
+  return Boolean(config.turnstileSiteKey);
+}
+
 function hasCloudConfig() {
   return Boolean(config.supabaseUrl && config.supabaseAnonKey);
+}
+
+function getTurnstileNote() {
+  if (!hasTurnstileConfig()) {
+    return "管理员还没配置 Cloudflare Turnstile，当前不能注册、重发验证邮件或找回密码。";
+  }
+  if (state.turnstileStatus === "loading") {
+    return "人机验证正在加载，等一下就能继续注册或发送邮件。";
+  }
+  if (state.turnstileStatus === "error") {
+    return "人机验证加载失败，请刷新页面后重试；如果持续失败，检查 Turnstile site key 和 Supabase CAPTCHA 配置。";
+  }
+  if (state.turnstileStatus === "verified") {
+    return "人机验证已通过，现在可以注册、重发验证邮件或发送重置邮件。";
+  }
+  if (state.turnstileStatus === "expired") {
+    return "刚才的人机验证已经过期了，请重新完成一次验证。";
+  }
+  return "注册、重发验证邮件和忘记密码前需要先完成人机验证。";
+}
+
+function getTurnstileActionMessage() {
+  if (!hasTurnstileConfig()) {
+    return "管理员还没配置 Cloudflare Turnstile，当前不能注册、重发验证邮件或找回密码。";
+  }
+  if (state.turnstileStatus === "loading") {
+    return "人机验证还在加载，等一下再试。";
+  }
+  if (state.turnstileStatus === "error") {
+    return "人机验证加载失败，请刷新页面后重试。";
+  }
+  return "先完成人机验证，再注册、重发验证邮件或发送重置邮件。";
 }
 
 function assertCloudUser() {
@@ -2268,18 +2521,215 @@ function currentSiteUrl() {
   return `${window.location.origin}${window.location.pathname}`;
 }
 
+function getLoggedOutAuthMessage() {
+  if (hasTurnstileConfig()) {
+    return "云端模式已开启。登录后每个画师只会看到自己的数据。";
+  }
+  return "云端模式已开启，但还没配置 Cloudflare Turnstile；当前只能登录，不能注册、重发验证邮件或找回密码。";
+}
+
 function mapAuthError(error) {
+  return normalizeAuthError(error).message;
+}
+
+function normalizeAuthError(error) {
   const message = String(error?.message || error || "操作失败。");
-  if (message.includes("email rate limit exceeded")) {
-    return "邮件发送太频繁，被 Supabase 限流了。先等一会儿再试，别连续点发送。";
+  const lowerMessage = message.toLowerCase();
+  const retryAfterSeconds = parseRetryAfterSeconds(message);
+  if (lowerMessage.includes("email rate limit exceeded")) {
+    return {
+      kind: "rate_limit",
+      retryAfterSeconds,
+      message: retryAfterSeconds
+        ? `邮件发送太频繁，被 Supabase 限流了。请 ${formatDurationSeconds(retryAfterSeconds)} 后再试。`
+        : "邮件发送太频繁，被 Supabase 限流了。先等一会儿再试，别连续点发送。",
+    };
   }
-  if (message.includes("only request this after")) {
-    return "请求太频繁，Supabase 暂时不再发邮件。等一会儿再重试。";
+  if (lowerMessage.includes("only request this after")) {
+    return {
+      kind: "rate_limit",
+      retryAfterSeconds,
+      message: retryAfterSeconds
+        ? `请求太频繁，Supabase 暂时不再发邮件。请 ${formatDurationSeconds(retryAfterSeconds)} 后重试。`
+        : "请求太频繁，Supabase 暂时不再发邮件。等一会儿再重试。",
+    };
   }
-  if (message.includes("Email link is invalid") || message.includes("expired")) {
-    return "这个邮件链接已经失效了，请重新发送一封新的验证或重置邮件。";
+  if (message.includes("Email link is invalid") || lowerMessage.includes("expired")) {
+    return {
+      kind: "expired_link",
+      retryAfterSeconds: 0,
+      message: "这个邮件链接已经失效了，请重新发送一封新的验证或重置邮件。",
+    };
   }
-  return message;
+  if (lowerMessage.includes("captcha") || lowerMessage.includes("turnstile")) {
+    return {
+      kind: "captcha",
+      retryAfterSeconds: 0,
+      message: "人机验证失败，请重新完成验证后再试。如果一直失败，说明 Turnstile 或 Supabase CAPTCHA 配置还没完成。",
+    };
+  }
+  return {
+    kind: "generic",
+    retryAfterSeconds: 0,
+    message,
+  };
+}
+
+function handleAuthActionError(error, { action, email }) {
+  const normalizedError = normalizeAuthError(error);
+  if (normalizedError.kind === "rate_limit") {
+    const retryAfterSeconds = normalizedError.retryAfterSeconds || 60;
+    startAuthCooldown(action, email, retryAfterSeconds);
+    if (action === "signup" || action === "resendSignup") {
+      startAuthCooldown("signup", email, retryAfterSeconds);
+      startAuthCooldown("resendSignup", email, retryAfterSeconds);
+    }
+    updateAuthUi(getAuthRateLimitMessage(action, retryAfterSeconds));
+    return;
+  }
+  updateAuthUi(normalizedError.message);
+}
+
+function parseRetryAfterSeconds(message) {
+  const secondMatch = message.match(/after\s+(\d+)\s+seconds?/i);
+  if (secondMatch) {
+    return Number(secondMatch[1]);
+  }
+  const minuteMatch = message.match(/after\s+(\d+)\s+minutes?/i);
+  if (minuteMatch) {
+    return Number(minuteMatch[1]) * 60;
+  }
+  return 0;
+}
+
+function formatDurationSeconds(totalSeconds) {
+  const seconds = Math.max(0, Math.ceil(Number(totalSeconds) || 0));
+  const minutes = Math.floor(seconds / 60);
+  const restSeconds = seconds % 60;
+  if (!minutes) {
+    return `${restSeconds} 秒`;
+  }
+  if (!restSeconds) {
+    return `${minutes} 分钟`;
+  }
+  return `${minutes} 分 ${restSeconds} 秒`;
+}
+
+function normalizeAuthEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function loadAuthCooldowns() {
+  try {
+    const raw = window.localStorage.getItem(AUTH_COOLDOWN_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    return pruneExpiredAuthCooldowns(parsed);
+  } catch {
+    return {};
+  }
+}
+
+function saveAuthCooldowns() {
+  state.authCooldowns = pruneExpiredAuthCooldowns(state.authCooldowns);
+  try {
+    window.localStorage.setItem(AUTH_COOLDOWN_KEY, JSON.stringify(state.authCooldowns));
+  } catch {
+    // Ignore storage failures and keep the in-memory cooldown state.
+  }
+}
+
+function pruneExpiredAuthCooldowns(cooldowns) {
+  const now = Date.now();
+  return Object.fromEntries(
+    Object.entries(cooldowns || {}).filter(([, endsAt]) => Number(endsAt) > now),
+  );
+}
+
+function getAuthCooldownStorageKey(action, email) {
+  const normalizedEmail = normalizeAuthEmail(email);
+  return normalizedEmail ? `${action}:${normalizedEmail}` : "";
+}
+
+function getAuthCooldownRemaining(action, email) {
+  const key = getAuthCooldownStorageKey(action, email);
+  if (!key) return 0;
+  const endsAt = Number(state.authCooldowns[key] || 0);
+  const remainingMilliseconds = endsAt - Date.now();
+  if (remainingMilliseconds <= 0) {
+    if (state.authCooldowns[key]) {
+      delete state.authCooldowns[key];
+      saveAuthCooldowns();
+    }
+    return 0;
+  }
+  return Math.ceil(remainingMilliseconds / 1000);
+}
+
+function hasAuthCooldown(action, email) {
+  return getAuthCooldownRemaining(action, email) > 0;
+}
+
+function startAuthCooldown(action, email, seconds = 60) {
+  const key = getAuthCooldownStorageKey(action, email);
+  if (!key) return;
+  state.authCooldowns[key] = Date.now() + Math.max(1, Number(seconds) || 60) * 1000;
+  saveAuthCooldowns();
+  syncAuthCooldownTicker();
+  renderSyncPanel();
+}
+
+function syncAuthCooldownTicker() {
+  const hasCooldown = Object.keys(pruneExpiredAuthCooldowns(state.authCooldowns)).length > 0;
+  if (hasCooldown && !authCooldownTicker) {
+    authCooldownTicker = window.setInterval(() => {
+      const nextCooldowns = pruneExpiredAuthCooldowns(state.authCooldowns);
+      const changed =
+        Object.keys(nextCooldowns).length !== Object.keys(state.authCooldowns).length ||
+        Object.keys(nextCooldowns).some((key) => nextCooldowns[key] !== state.authCooldowns[key]);
+      state.authCooldowns = nextCooldowns;
+      if (changed) {
+        saveAuthCooldowns();
+      }
+      renderSyncPanel();
+      if (!Object.keys(state.authCooldowns).length) {
+        window.clearInterval(authCooldownTicker);
+        authCooldownTicker = null;
+      }
+    }, 1000);
+    return;
+  }
+  if (!hasCooldown && authCooldownTicker) {
+    window.clearInterval(authCooldownTicker);
+    authCooldownTicker = null;
+  }
+}
+
+function getAuthActionLabel(action, remainingSeconds) {
+  const label = {
+    signup: "注册",
+    resendSignup: "重发验证邮件",
+    forgotPassword: "忘记密码",
+  }[action];
+  if (!remainingSeconds) return label;
+  return `${label}（${formatDurationSeconds(remainingSeconds)}）`;
+}
+
+function getAuthCooldownMessage(action, email) {
+  const remainingSeconds = getAuthCooldownRemaining(action, email);
+  if (!remainingSeconds) {
+    return "";
+  }
+  return getAuthRateLimitMessage(action, remainingSeconds);
+}
+
+function getAuthRateLimitMessage(action, remainingSeconds) {
+  const wait = formatDurationSeconds(remainingSeconds);
+  if (action === "forgotPassword") {
+    return `重置密码邮件发得太快了，请 ${wait} 后再试，先别连续点“忘记密码”。`;
+  }
+  return `当前邮箱的验证邮件发得太快了，请 ${wait} 后再试。先别连续点“注册”或“重发验证邮件”；如果你之前已经注册过，直接试“登录”或“忘记密码”。`;
 }
 
 function isOverdue(order) {

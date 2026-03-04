@@ -82,12 +82,13 @@ python3 -m http.server 8000
 - `content`
 - `page_context`
 
-### 3. 获取前端需要的两个值
+### 3. 获取前端需要的三个值
 
 在 Supabase 项目里找到：
 
 - `Project URL`
 - `anon` / `publishable` key
+- Cloudflare Turnstile 的 `site key`
 
 ### 4. 在 Netlify 配环境变量
 
@@ -95,6 +96,7 @@ Netlify 项目里添加：
 
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
+- `TURNSTILE_SITE_KEY`
 
 ### 4.1 在 Supabase 配 Auth URL
 
@@ -107,6 +109,39 @@ Netlify 项目里添加：
   - 本地调试地址，比如 `http://localhost:8000`
 
 否则邮箱验证和重置密码链接回跳时，前端可能拿不到正确的认证上下文。
+
+### 4.2 生产环境的 Auth 邮件和 CAPTCHA
+
+如果这个站点已经开放给真实用户注册，Supabase 默认 SMTP 不够用，也不适合作为生产认证邮件通道。
+
+- Supabase 官方说明默认 SMTP 不是生产用途，默认只有 `2 封/小时`
+- 接上自定义 SMTP 后，`Authentication -> Rate Limits -> Emails sent` 初始仍建议先按 `30/hour` 跑稳定性验证
+- Cloudflare Turnstile 上线并验收通过后，再把 `Emails sent` 提高到 `120/hour`
+
+建议按下面这套固定配置走：
+
+1. 在 Resend 创建并验证发信子域，比如 `mail.你的域名`
+2. 配好 Resend 要求的 SPF / DKIM 记录
+3. 到 `Authentication -> Providers -> Email`：
+   - 保持 `Confirm email` 开启
+   - 开启 `Custom SMTP`
+   - `Sender Name` 填 `画了么`
+   - `Sender Email` 填 `no-reply@mail.你的域名`
+   - SMTP 凭据填 Resend 提供的 Host / Port / Username / Password
+4. 到 `Authentication -> CAPTCHA`：
+   - 选择 `Cloudflare Turnstile`
+   - 填入 Turnstile 的 `site key` 和 `secret key`
+5. 到 `Authentication -> Rate Limits`：
+   - 自定义 SMTP 刚切好但 Turnstile 还没上线时，`Emails sent` 先保持 `30/hour`
+   - Turnstile 上线并跑通注册 / 重发验证邮件 / 忘记密码后，再提高到 `120/hour`
+
+这个仓库已经在工具页接了 Turnstile。只要 `TURNSTILE_SITE_KEY` 没配置，注册、重发验证邮件和忘记密码会直接禁用，避免无防护地打到 Supabase Auth。
+
+官方文档：
+
+- [Supabase Auth: Custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp)
+- [Supabase Auth: Rate Limits](https://supabase.com/docs/guides/auth/rate-limits)
+- [Supabase Auth: Bot and Abuse Protection](https://supabase.com/docs/guides/auth/auth-captcha)
 
 ### 5. 部署
 
