@@ -888,7 +888,13 @@ async function signInWithEmail() {
   const { error } = await state.supabase.auth.signInWithPassword({
     email,
     password,
-    ...(captchaToken ? { captchaToken } : {}),
+    ...(captchaToken
+      ? {
+          options: {
+            captchaToken,
+          },
+        }
+      : {}),
   });
   setBusy(false);
   refreshTurnstileToken();
