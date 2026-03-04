@@ -876,9 +876,22 @@ async function signInWithEmail() {
     return;
   }
 
+  let captchaToken = null;
+  if (hasTurnstileConfig()) {
+    captchaToken = await getTurnstileToken();
+    if (!captchaToken) {
+      return;
+    }
+  }
+
   setBusy(true);
-  const { error } = await state.supabase.auth.signInWithPassword({ email, password });
+  const { error } = await state.supabase.auth.signInWithPassword({
+    email,
+    password,
+    ...(captchaToken ? { captchaToken } : {}),
+  });
   setBusy(false);
+  refreshTurnstileToken();
 
   if (error) {
     updateAuthUi(mapAuthError(error));
@@ -2337,26 +2350,26 @@ function hasCloudConfig() {
 
 function getTurnstileNote() {
   if (!hasTurnstileConfig()) {
-    return "管理员还没配置 Cloudflare Turnstile，当前不能注册、重发验证邮件或找回密码。";
+    return "管理员还没配置 Cloudflare Turnstile，当前不能注册、登录、重发验证邮件或找回密码。";
   }
   if (state.turnstileStatus === "loading") {
-    return "人机验证正在加载，等一下就能继续注册或发送邮件。";
+    return "人机验证正在加载，等一下就能继续登录或发送认证邮件。";
   }
   if (state.turnstileStatus === "error") {
     return "人机验证加载失败，请刷新页面后重试；如果持续失败，检查 Turnstile site key 和 Supabase CAPTCHA 配置。";
   }
   if (state.turnstileStatus === "verified") {
-    return "人机验证已通过，现在可以注册、重发验证邮件或发送重置邮件。";
+    return "人机验证已通过，现在可以登录、注册、重发验证邮件或发送重置邮件。";
   }
   if (state.turnstileStatus === "expired") {
     return "刚才的人机验证已经过期了，请重新完成一次验证。";
   }
-  return "注册、重发验证邮件和忘记密码前需要先完成人机验证。";
+  return "登录、注册、重发验证邮件和忘记密码前需要先完成人机验证。";
 }
 
 function getTurnstileActionMessage() {
   if (!hasTurnstileConfig()) {
-    return "管理员还没配置 Cloudflare Turnstile，当前不能注册、重发验证邮件或找回密码。";
+    return "管理员还没配置 Cloudflare Turnstile，当前不能注册、登录、重发验证邮件或找回密码。";
   }
   if (state.turnstileStatus === "loading") {
     return "人机验证还在加载，等一下再试。";
@@ -2364,7 +2377,7 @@ function getTurnstileActionMessage() {
   if (state.turnstileStatus === "error") {
     return "人机验证加载失败，请刷新页面后重试。";
   }
-  return "先完成人机验证，再注册、重发验证邮件或发送重置邮件。";
+  return "先完成人机验证，再登录、注册、重发验证邮件或发送重置邮件。";
 }
 
 function assertCloudUser() {
