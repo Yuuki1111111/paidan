@@ -4,9 +4,44 @@ const STORAGE_KEY = "artist-commission-desk-v1";
 const LAST_TEMPLATE_KEY = "artist-commission-last-template-v1";
 const TABLE_NAME = "commission_orders";
 
-const BUILT_IN_BUSINESS_TYPES = ["头像", "半身", "立绘", "插画", "OC设计", "服设", "橱窗", "加项"];
+const BUILT_IN_BUSINESS_TYPES = [
+  "头像",
+  "胸插",
+  "QQ人",
+  "摸鱼页",
+  "摸鱼稿",
+  "半身",
+  "半身插",
+  "全身插",
+  "氛围插",
+  "插画",
+  "正比",
+  "双人",
+  "眼睛条",
+  "拍立得",
+  "小零食",
+  "服设",
+  "立绘",
+  "人设",
+  "OC设计",
+  "橱窗",
+  "加项",
+];
 const BUILT_IN_PRODUCTION_STAGES = ["草稿", "线稿", "铺色", "细化", "完稿"];
 const SOURCES = ["米画师", "画加", "私单", "橱窗", "熟人转介绍", "社媒引流"];
+const SOURCE_OPTIONS = [
+  { value: "米画师", label: "米画师企划邀请" },
+  { value: "画加", label: "画加" },
+  { value: "私单", label: "私单" },
+  { value: "橱窗", label: "米画师橱窗" },
+  { value: "熟人转介绍", label: "熟人转介绍" },
+  { value: "社媒引流", label: "社媒引流" },
+];
+const FEE_MODES = [
+  { value: "standard", label: "默认按比例" },
+  { value: "mhs_project", label: "米画师企划邀请（按到手价）" },
+  { value: "mhs_window", label: "米画师橱窗（满20减1）" },
+];
 const PRIORITIES = ["普通", "加急", "特快"];
 const STATUSES = ["待沟通", "排期中", "进行中", "待交付", "已完成", "已付款", "已处理"];
 const PAYMENT_STATUSES = ["未收款", "已收定金", "已结清"];
@@ -31,6 +66,7 @@ const DEMO_ORDERS = [
     clientName: "老板-A17",
     businessType: "头像",
     source: "米画师",
+    feeMode: "mhs_project",
     priority: "特快",
     amount: 180,
     receivedAmount: 180,
@@ -48,6 +84,7 @@ const DEMO_ORDERS = [
     clientName: "老板-K21",
     businessType: "OC设计",
     source: "私单",
+    feeMode: "standard",
     priority: "普通",
     amount: 680,
     receivedAmount: 200,
@@ -65,6 +102,7 @@ const DEMO_ORDERS = [
     clientName: "老板-M88",
     businessType: "服设",
     source: "画加",
+    feeMode: "standard",
     priority: "普通",
     amount: 320,
     receivedAmount: 0,
@@ -82,6 +120,7 @@ const DEMO_ORDERS = [
     clientName: "老板-L02",
     businessType: "插画",
     source: "熟人转介绍",
+    feeMode: "standard",
     priority: "加急",
     amount: 450,
     receivedAmount: 200,
@@ -99,11 +138,12 @@ const DEMO_ORDERS = [
     clientName: "工作室-31",
     businessType: "橱窗",
     source: "橱窗",
+    feeMode: "mhs_window",
     priority: "普通",
     amount: 260,
     receivedAmount: 0,
     paymentStatus: "未收款",
-    feeRate: 0,
+    feeRate: 0.05,
     dueDate: "2026-03-18",
     completedDate: "",
     status: "已处理",
@@ -116,6 +156,7 @@ const DEMO_ORDERS = [
     clientName: "老板-R09",
     businessType: "立绘",
     source: "米画师",
+    feeMode: "mhs_project",
     priority: "加急",
     amount: 1280,
     receivedAmount: 600,
@@ -188,7 +229,9 @@ const elements = {
   productionStage: document.querySelector("#production-stage"),
   productionStageOptions: document.querySelector("#production-stage-options"),
   source: document.querySelector("#source"),
+  feeMode: document.querySelector("#fee-mode"),
   feeRate: document.querySelector("#fee-rate"),
+  amountLabel: document.querySelector("#amount-label"),
   priority: document.querySelector("#priority"),
   amount: document.querySelector("#amount"),
   receivedAmount: document.querySelector("#received-amount"),
@@ -265,7 +308,8 @@ await bootstrap();
 async function bootstrap() {
   renderBusinessTypeOptions();
   renderProductionStageOptions();
-  fillSelect(elements.source, SOURCES);
+  fillSelectWithItems(elements.source, SOURCE_OPTIONS);
+  fillSelectWithItems(elements.feeMode, FEE_MODES);
   fillSelect(elements.priority, PRIORITIES);
   fillSelect(elements.status, STATUSES);
   fillSelect(elements.exceptionType, EXCEPTION_TYPES);
@@ -273,7 +317,7 @@ async function bootstrap() {
   fillSelect(elements.exceptionResolution, EXCEPTION_RESOLUTIONS, false, "请选择");
   fillSelect(elements.statusFilter, STATUSES, true);
   fillSelect(elements.exceptionFilter, EXCEPTION_TYPES, true);
-  fillSelect(elements.sourceFilter, SOURCES, true);
+  fillSelectWithItems(elements.sourceFilter, SOURCE_OPTIONS, true);
   fillSelect(elements.paymentFilter, PAYMENT_STATUSES, true);
   fillSelect(
     elements.batchExceptionType,
@@ -345,8 +389,19 @@ function bindEvents() {
   });
   elements.source.addEventListener("change", (event) => {
     if (shouldAutoApplySourceFee()) {
-      elements.feeRate.value = formatFeeRatePercent(getDefaultFeeRate(event.target.value));
+      const nextFeeMode = getSuggestedFeeMode(event.target.value);
+      elements.feeMode.value = nextFeeMode;
+      elements.feeRate.value = formatFeeRatePercent(
+        getDefaultFeeRate(event.target.value, nextFeeMode),
+      );
     }
+    updateFeeModeUi();
+  });
+  elements.feeMode.addEventListener("change", () => {
+    elements.feeRate.value = formatFeeRatePercent(
+      getDefaultFeeRate(elements.source.value, elements.feeMode.value),
+    );
+    updateFeeModeUi();
   });
   elements.seedDemo.addEventListener("click", () => replaceAllOrders(DEMO_ORDERS));
   elements.exportJson.addEventListener("click", exportJson);
@@ -708,6 +763,7 @@ async function handleSubmit(event) {
     businessType: elements.businessType.value,
     productionStage: elements.productionStage.value,
     source: elements.source.value,
+    feeMode: elements.feeMode.value,
     feeRate: parseFeeRateInput(elements.feeRate.value),
     priority: elements.priority.value,
     amount: Number(elements.amount.value),
@@ -847,7 +903,10 @@ function resetForm() {
   elements.hiddenId.value = "";
   elements.businessType.value = BUILT_IN_BUSINESS_TYPES[0];
   elements.source.value = SOURCES[0];
-  elements.feeRate.value = formatFeeRatePercent(getDefaultFeeRate(elements.source.value));
+  elements.feeMode.value = getSuggestedFeeMode(elements.source.value);
+  elements.feeRate.value = formatFeeRatePercent(
+    getDefaultFeeRate(elements.source.value, elements.feeMode.value),
+  );
   elements.priority.value = PRIORITIES[0];
   elements.receivedAmount.value = "0";
   elements.paymentStatus.value = PAYMENT_STATUSES[0];
@@ -855,6 +914,7 @@ function resetForm() {
   elements.productionStage.value = "";
   elements.exceptionType.value = EXCEPTION_TYPES[0];
   elements.dueDate.value = "";
+  updateFeeModeUi();
 }
 
 function render() {
@@ -983,7 +1043,7 @@ function renderStats(orders) {
     {
       label: "预计实得",
       value: `¥${totalNet}`,
-      note: `扣除平台费 ¥${totalFee}`,
+      note: `平台费 / 加价 ¥${totalFee}`,
     },
     {
       label: "逾期稿件",
@@ -1118,7 +1178,7 @@ function renderTable(orders) {
     totalRefund > 0
       ? `共 ${orders.length} 单，结算收入 ¥${effectiveAmount}（退款 ¥${totalRefund}，实得 ¥${netAmount}），已收净额 ¥${effectiveReceived}`
       : totalFee > 0
-        ? `共 ${orders.length} 单，收入 ¥${grossAmount}（实得 ¥${netAmount}），已收 ¥${effectiveReceived}`
+        ? `共 ${orders.length} 单，收入 ¥${grossAmount}（平台费 / 加价 ¥${totalFee}，实得 ¥${netAmount}），已收 ¥${effectiveReceived}`
         : `共 ${orders.length} 单，收入 ¥${grossAmount}，已收 ¥${effectiveReceived}`;
 
   if (!orders.length) {
@@ -1161,7 +1221,7 @@ function renderTable(orders) {
         ${order.notes ? `<div class="legend-row">${escapeHtml(order.notes)}</div>` : ""}
       </td>
       <td><div class="chip-group"><span class="chip business">${escapeHtml(order.businessType)}</span></div></td>
-      <td><span class="chip source">${escapeHtml(order.source)}</span></td>
+      <td><span class="chip source">${escapeHtml(getSourceLabel(order.source))}</span></td>
       <td><span class="chip priority">${escapeHtml(order.priority)}</span></td>
       <td>${renderAmountContent(order)}</td>
       <td>${renderPaymentContent(order)}</td>
@@ -1254,7 +1314,10 @@ function fillFormFromOrder(order, title, isEditing = false) {
   elements.businessType.value = order.businessType || BUILT_IN_BUSINESS_TYPES[0];
   elements.productionStage.value = order.productionStage || "";
   elements.source.value = order.source || SOURCES[0];
-  elements.feeRate.value = formatFeeRatePercent(order.feeRate ?? getDefaultFeeRate(elements.source.value));
+  elements.feeMode.value = normalizeFeeMode(order.feeMode);
+  elements.feeRate.value = formatFeeRatePercent(
+    order.feeRate ?? getDefaultFeeRate(elements.source.value, elements.feeMode.value),
+  );
   elements.priority.value = order.priority || PRIORITIES[0];
   elements.amount.value = order.amount ?? "";
   elements.receivedAmount.value = order.receivedAmount ?? 0;
@@ -1264,6 +1327,7 @@ function fillFormFromOrder(order, title, isEditing = false) {
   elements.status.value = order.status || STATUSES[0];
   elements.exceptionType.value = order.exceptionType || EXCEPTION_TYPES[0];
   elements.notes.value = order.notes || "";
+  updateFeeModeUi();
   elements.projectName.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
@@ -1274,7 +1338,8 @@ function makeDuplicateTemplate(order) {
     businessType: order.businessType,
     productionStage: order.productionStage || "",
     source: order.source,
-    feeRate: order.feeRate ?? getDefaultFeeRate(order.source),
+    feeMode: normalizeFeeMode(order.feeMode),
+    feeRate: order.feeRate ?? getDefaultFeeRate(order.source, order.feeMode),
     priority: order.priority,
     amount: order.amount,
     receivedAmount: 0,
@@ -1599,15 +1664,41 @@ function renderExceptionChip(order) {
 }
 
 function renderAmountContent(order) {
+  const feeMode = normalizeFeeMode(order.feeMode);
   const effectiveAmount = calculateEffectiveAmount(order);
   const refundAmount = calculateRefundAmount(order);
+  const feeAmount = calculateAdjustedFeeAmount(order);
   const netAmount = calculateAdjustedNetAmount(order);
-  const rows = [`<strong>${refundAmount > 0 ? `原稿费 ¥${order.amount}` : `¥${order.amount}`}</strong>`];
+
+  const rows = [];
+  if (feeMode === "mhs_project") {
+    rows.push(
+      `<strong>${refundAmount > 0 ? `原到手 ¥${order.amount}` : `到手稿费 ¥${order.amount}`}</strong>`,
+    );
+  } else if (feeMode === "mhs_window") {
+    rows.push(
+      `<strong>${refundAmount > 0 ? `原标价 ¥${order.amount}` : `橱窗标价 ¥${order.amount}`}</strong>`,
+    );
+  } else {
+    rows.push(`<strong>${refundAmount > 0 ? `原稿费 ¥${order.amount}` : `¥${order.amount}`}</strong>`);
+  }
+
   if (refundAmount > 0) {
     rows.push(`<div class="legend-row warning-text">退款 ¥${refundAmount}</div>`);
-    rows.push(`<div class="legend-row">结算 ¥${effectiveAmount}</div>`);
+    rows.push(
+      `<div class="legend-row">${
+        feeMode === "mhs_project" ? `结算到手 ¥${effectiveAmount}` : `结算 ¥${effectiveAmount}`
+      }</div>`,
+    );
   }
-  if (order.feeRate > 0 || refundAmount > 0) {
+
+  if (feeMode === "mhs_project" && order.feeRate > 0) {
+    rows.push(`<div class="legend-row">企划报价 ¥${calculateQuotedAmount(order)}</div>`);
+    rows.push(`<div class="legend-row">平台加价 ¥${feeAmount}</div>`);
+  } else if (feeMode === "mhs_window" && order.feeRate > 0) {
+    rows.push(`<div class="legend-row">平台费 ¥${feeAmount}</div>`);
+    rows.push(`<div class="legend-row">预计实得 ¥${netAmount}</div>`);
+  } else if (order.feeRate > 0 || refundAmount > 0) {
     rows.push(`<div class="legend-row">预计实得 ¥${netAmount}</div>`);
   }
   return rows.join("");
@@ -1653,6 +1744,7 @@ function exportCsv() {
     "业务分类",
     "制作阶段",
     "来源",
+    "手续费方式",
     "平台抽成(%)",
     "紧急程度",
     "稿费",
@@ -1675,7 +1767,8 @@ function exportCsv() {
     item.clientName,
     item.businessType,
     item.productionStage,
-    item.source,
+    getSourceLabel(item.source),
+    getFeeModeLabel(normalizeFeeMode(item.feeMode)),
     formatFeeRatePercent(item.feeRate),
     item.priority,
     item.amount,
@@ -1724,6 +1817,9 @@ function importJson(event) {
           const feeRate = Number(record.feeRate);
           if (!isFinite(feeRate) || feeRate < 0 || feeRate > 1) return false;
         }
+        if (record.feeMode != null && !FEE_MODES.some((item) => item.value === record.feeMode)) {
+          return false;
+        }
         if (record.exceptionType != null && !EXCEPTION_TYPES.includes(record.exceptionType)) {
           return false;
         }
@@ -1768,6 +1864,23 @@ function fillSelect(select, values, includeAll = false, placeholder = "") {
     const option = document.createElement("option");
     option.value = value;
     option.textContent = value;
+    select.append(option);
+  });
+}
+
+function fillSelectWithItems(select, items, includeAll = false, placeholder = "") {
+  if (!select) return;
+  select.innerHTML = includeAll ? '<option value="all">全部</option>' : "";
+  if (placeholder) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = placeholder;
+    select.append(option);
+  }
+  items.forEach((item) => {
+    const option = document.createElement("option");
+    option.value = item.value;
+    option.textContent = item.label;
     select.append(option);
   });
 }
@@ -1860,14 +1973,40 @@ function normalizeProductionStageValue(value) {
   return String(value || "").trim().slice(0, 20);
 }
 
+function normalizeFeeMode(value) {
+  return FEE_MODES.some((item) => item.value === value) ? value : "standard";
+}
+
+function getSuggestedFeeMode(source) {
+  if (source === "米画师") return "mhs_project";
+  if (source === "橱窗") return "mhs_window";
+  return "standard";
+}
+
+function getFeeModeLabel(feeMode) {
+  return FEE_MODES.find((item) => item.value === feeMode)?.label || "默认按比例";
+}
+
+function getSourceLabel(source) {
+  return SOURCE_OPTIONS.find((item) => item.value === source)?.label || source;
+}
+
+function updateFeeModeUi() {
+  if (!elements.amountLabel || !elements.feeMode) return;
+  const feeMode = normalizeFeeMode(elements.feeMode.value);
+  elements.amountLabel.textContent =
+    feeMode === "mhs_project" ? "到手稿费" : feeMode === "mhs_window" ? "橱窗标价" : "总稿费";
+}
+
 function normalizeOrder(input = {}) {
   const source = input.source || SOURCES[0];
+  const feeMode = normalizeFeeMode(input.feeMode);
   const amount = Number(input.amount || 0);
   const receivedAmount = Number(input.receivedAmount || 0);
   const rawFeeRate = input.feeRate;
   const normalizedFeeRate =
     rawFeeRate == null || rawFeeRate === ""
-      ? getDefaultFeeRate(source)
+      ? getDefaultFeeRate(source, feeMode)
       : Math.min(Math.max(Number(rawFeeRate) || 0, 0), 1);
   const exceptionType = EXCEPTION_TYPES.includes(input.exceptionType) ? input.exceptionType : "无";
   const normalizedBusinessType = normalizeBusinessTypeValue(input.businessType);
@@ -1891,6 +2030,7 @@ function normalizeOrder(input = {}) {
     businessType: normalizedBusinessType || BUILT_IN_BUSINESS_TYPES[0],
     productionStage: normalizedProductionStage,
     source,
+    feeMode,
     priority: input.priority || PRIORITIES[0],
     amount,
     receivedAmount,
@@ -1916,6 +2056,7 @@ function rowToOrder(row) {
     businessType: row.business_type,
     productionStage: row.production_stage,
     source: row.source,
+    feeMode: row.fee_mode,
     priority: row.priority,
     amount: row.amount,
     receivedAmount: row.received_amount,
@@ -1942,6 +2083,7 @@ function orderToRow(order, userId) {
     business_type: order.businessType,
     production_stage: order.productionStage || "",
     source: order.source,
+    fee_mode: normalizeFeeMode(order.feeMode),
     priority: order.priority,
     amount: Number(order.amount || 0),
     received_amount: Number(order.receivedAmount || 0),
@@ -1991,7 +2133,11 @@ function inferPaymentStatus(order) {
   return "未收款";
 }
 
-function getDefaultFeeRate(source) {
+function getDefaultFeeRate(source, feeMode = "standard") {
+  const normalizedFeeMode = normalizeFeeMode(feeMode);
+  if (normalizedFeeMode === "mhs_project" || normalizedFeeMode === "mhs_window") {
+    return 0.05;
+  }
   return SOURCE_FEE_RATES[source] ?? 0;
 }
 
@@ -2007,11 +2153,11 @@ function formatFeeRatePercent(rate) {
 }
 
 function calculateFeeAmount(order) {
-  return Math.round(Number(order.amount || 0) * Number(order.feeRate || 0));
+  return calculateAdjustedFeeAmount(order);
 }
 
 function calculateNetAmount(order) {
-  return Math.max(Number(order.amount || 0) - calculateFeeAmount(order), 0);
+  return calculateAdjustedNetAmount(order);
 }
 
 function calculateRefundAmount(order) {
@@ -2028,11 +2174,32 @@ function calculateEffectiveReceived(order) {
 }
 
 function calculateAdjustedFeeAmount(order) {
-  return Math.round(calculateEffectiveAmount(order) * Number(order.feeRate || 0));
+  const effectiveAmount = calculateEffectiveAmount(order);
+  const rate = Number(order.feeRate || 0);
+  const feeMode = normalizeFeeMode(order.feeMode);
+
+  if (feeMode === "mhs_project") {
+    return Math.ceil(effectiveAmount * rate);
+  }
+  if (feeMode === "mhs_window") {
+    return Math.floor(effectiveAmount * rate);
+  }
+  return Math.round(effectiveAmount * rate);
 }
 
 function calculateAdjustedNetAmount(order) {
-  return Math.max(calculateEffectiveAmount(order) - calculateAdjustedFeeAmount(order), 0);
+  const effectiveAmount = calculateEffectiveAmount(order);
+  if (normalizeFeeMode(order.feeMode) === "mhs_project") {
+    return effectiveAmount;
+  }
+  return Math.max(effectiveAmount - calculateAdjustedFeeAmount(order), 0);
+}
+
+function calculateQuotedAmount(order) {
+  if (normalizeFeeMode(order.feeMode) === "mhs_project") {
+    return calculateEffectiveAmount(order) + calculateAdjustedFeeAmount(order);
+  }
+  return calculateEffectiveAmount(order);
 }
 
 function sumFeeAmounts(list) {

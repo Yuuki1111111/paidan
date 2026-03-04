@@ -21,6 +21,7 @@ create table if not exists public.commission_orders (
   refund_amount integer not null default 0,
   exception_previous_status text,
   notes text not null default '',
+  fee_mode text not null default 'standard',
   fee_rate numeric,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -46,6 +47,9 @@ add column if not exists exception_previous_status text;
 
 alter table public.commission_orders
 add column if not exists fee_rate numeric;
+
+alter table public.commission_orders
+add column if not exists fee_mode text not null default 'standard';
 
 create or replace function public.set_updated_at()
 returns trigger

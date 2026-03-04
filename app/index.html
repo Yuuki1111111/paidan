@@ -188,6 +188,10 @@
                 <select id="source" name="source" required></select>
               </label>
               <label>
+                手续费方式
+                <select id="fee-mode" name="feeMode"></select>
+              </label>
+              <label>
                 平台抽成 (%)
                 <input id="fee-rate" name="feeRate" type="number" min="0" max="100" step="0.01" />
               </label>
@@ -196,7 +200,7 @@
                 <select id="priority" name="priority" required></select>
               </label>
               <label>
-                总稿费
+                <span id="amount-label">总稿费</span>
                 <input id="amount" name="amount" type="number" min="0" step="1" required />
               </label>
               <label>
