@@ -2536,6 +2536,21 @@ function normalizeAuthError(error) {
   const message = String(error?.message || error || "操作失败。");
   const lowerMessage = message.toLowerCase();
   const retryAfterSeconds = parseRetryAfterSeconds(message);
+  if (lowerMessage.includes("invalid login credentials")) {
+    return {
+      kind: "invalid_credentials",
+      retryAfterSeconds: 0,
+      message:
+        "邮箱或密码不对。若这个邮箱之前注册过、后来又重复点过注册，新密码不一定会覆盖旧密码；直接点“忘记密码”重设一次最稳。",
+    };
+  }
+  if (lowerMessage.includes("email not confirmed")) {
+    return {
+      kind: "email_not_confirmed",
+      retryAfterSeconds: 0,
+      message: "这个邮箱还没完成验证。先去邮件里点验证链接，验证完成后再用邮箱和密码登录。",
+    };
+  }
   if (lowerMessage.includes("email rate limit exceeded")) {
     return {
       kind: "rate_limit",
