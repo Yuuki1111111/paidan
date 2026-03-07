@@ -2888,9 +2888,6 @@ function applyPanelLayout() {
   const scheduleOrderMap = new Map(scheduleOrder.map((id, index) => [id, orderOffset + index + 1]));
   const insightsOrderMap = new Map(insightsOrder.map((id, index) => [id, orderOffset + index + 1]));
 
-  const viewSwitcher = document.querySelector(".view-switcher");
-  if (viewSwitcher) viewSwitcher.style.order = "0";
-
   DEFAULT_COMMON_SECTION_ORDER.forEach((id) => {
     const node = document.getElementById(id);
     if (!node) return;
@@ -2900,8 +2897,8 @@ function applyPanelLayout() {
   if (elements.contentSlot) {
     const slotOrder =
       state.viewMode === VIEW_MODE_SCHEDULE
-        ? scheduleOrderMap.get("form") ?? orderOffset + 1
-        : insightsOrderMap.get("analysis") ?? orderOffset + DEFAULT_INSIGHTS_SECTION_ORDER.indexOf("analysis") + 1;
+        ? scheduleOrderMap.get("form") || 1
+        : insightsOrderMap.get("analysis") || DEFAULT_INSIGHTS_SECTION_ORDER.indexOf("analysis") + 1;
     elements.contentSlot.style.order = String(slotOrder);
   }
 
