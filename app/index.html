@@ -77,10 +77,12 @@
               <p class="section-tag">同步</p>
               <h2>账号与云端数据</h2>
             </div>
-            <div class="panel-layout-controls" role="group" aria-label="同步模块布局">
-              <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="up" data-panel-id="sync">上移</button>
-              <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="down" data-panel-id="sync">下移</button>
-              <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-collapse data-panel-id="sync" aria-expanded="true">折叠</button>
+            <div class="panel-header-actions">
+              <button type="button" class="ghost-button small-button panel-toggle-btn" data-panel-collapse data-panel-id="sync" aria-expanded="true">折叠</button>
+              <div class="panel-layout-controls" role="group" aria-label="同步模块布局">
+                <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="up" data-panel-id="sync">上移</button>
+                <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="down" data-panel-id="sync">下移</button>
+              </div>
             </div>
           </div>
           <div class="sync-grid">
@@ -154,10 +156,12 @@
               <p class="section-tag">筛选</p>
               <h2>查看范围</h2>
             </div>
-            <div class="panel-layout-controls" role="group" aria-label="筛选模块布局">
-              <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="up" data-panel-id="filters">上移</button>
-              <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="down" data-panel-id="filters">下移</button>
-              <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-collapse data-panel-id="filters" aria-expanded="true">折叠</button>
+            <div class="panel-header-actions">
+              <button type="button" class="ghost-button small-button panel-toggle-btn" data-panel-collapse data-panel-id="filters" aria-expanded="true">折叠</button>
+              <div class="panel-layout-controls" role="group" aria-label="筛选模块布局">
+                <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="up" data-panel-id="filters">上移</button>
+                <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="down" data-panel-id="filters">下移</button>
+              </div>
             </div>
           </div>
           <div class="filters-grid">
@@ -212,10 +216,12 @@
               <p class="section-tag">统计</p>
               <h2>收入概览</h2>
             </div>
-            <div class="panel-layout-controls" role="group" aria-label="统计模块布局">
-              <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="up" data-panel-id="stats-panel">上移</button>
-              <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="down" data-panel-id="stats-panel">下移</button>
-              <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-collapse data-panel-id="stats-panel" aria-expanded="true">折叠</button>
+            <div class="panel-header-actions">
+              <button type="button" class="ghost-button small-button panel-toggle-btn" data-panel-collapse data-panel-id="stats-panel" aria-expanded="true">折叠</button>
+              <div class="panel-layout-controls" role="group" aria-label="统计模块布局">
+                <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="up" data-panel-id="stats-panel">上移</button>
+                <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="down" data-panel-id="stats-panel">下移</button>
+              </div>
             </div>
           </div>
           <section id="stats" class="stats-grid"></section>
@@ -229,10 +235,10 @@
             </div>
             <div class="panel-header-actions">
               <span id="motivation-month-label" class="legend-row"></span>
+              <button type="button" class="ghost-button small-button panel-toggle-btn" data-panel-collapse data-panel-id="motivation" aria-expanded="true">折叠</button>
               <div class="panel-layout-controls" role="group" aria-label="激励模块布局">
                 <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="up" data-panel-id="motivation">上移</button>
                 <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="down" data-panel-id="motivation">下移</button>
-                <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-collapse data-panel-id="motivation" aria-expanded="true">折叠</button>
               </div>
             </div>
           </div>
@@ -269,10 +275,12 @@
                 <p class="section-tag">录入</p>
                 <h2 id="form-title">新建稿件</h2>
               </div>
-              <div class="panel-layout-controls" role="group" aria-label="录入模块布局">
-                <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="up" data-panel-id="form">上移</button>
-                <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="down" data-panel-id="form">下移</button>
-                <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-collapse data-panel-id="form" aria-expanded="true">折叠</button>
+              <div class="panel-header-actions">
+                <button type="button" class="ghost-button small-button panel-toggle-btn" data-panel-collapse data-panel-id="form" aria-expanded="true">折叠</button>
+                <div class="panel-layout-controls" role="group" aria-label="录入模块布局">
+                  <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="up" data-panel-id="form">上移</button>
+                  <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="down" data-panel-id="form">下移</button>
+                </div>
               </div>
             </div>
             <form id="order-form" class="order-form">
@@ -316,7 +324,7 @@
                   list="source-options"
                   required
                   maxlength="20"
-                  placeholder="米画师 / 群拍 / 设拍 / 稿拍 / 自定义"
+                  placeholder="米画师企划邀请 / 米画师橱窗 / 群拍 / 自定义"
                 />
                 <datalist id="source-options"></datalist>
                 <span class="legend-row field-note">支持内置来源和自定义来源，输入后会自动复用。</span>
@@ -359,9 +367,29 @@
                   关闭固定汇率时仅允许人民币；开启后可选 USD / JPY / TWD / HKD，统计会自动折算成人民币。
                 </span>
               </label>
+              <div id="mhs-project-amount-mode-row" class="amount-mode-row full-width is-hidden">
+                <span class="legend-row">企划金额口径</span>
+                <div class="calendar-mode-switch" role="group" aria-label="米画师企划金额录入口径">
+                  <button
+                    type="button"
+                    id="mhs-project-amount-mode-artist"
+                    class="calendar-mode-btn is-active"
+                  >
+                    按画师到手
+                  </button>
+                  <button
+                    type="button"
+                    id="mhs-project-amount-mode-client"
+                    class="calendar-mode-btn"
+                  >
+                    按邀请总价
+                  </button>
+                </div>
+              </div>
               <label>
                 <span id="amount-label">总稿费</span>
                 <input id="amount" name="amount" type="number" min="0" step="0.01" required />
+                <span id="amount-note" class="legend-row field-note"></span>
               </label>
               <label>
                 已收金额
@@ -377,6 +405,7 @@
               <label>
                 收款状态
                 <select id="payment-status" name="paymentStatus" required></select>
+                <span class="legend-row field-note">“已结清”只记录钱收齐，不会自动完结稿件。</span>
               </label>
               <label>
                 动工日期
@@ -393,7 +422,13 @@
               <label>
                 排期条颜色（可选）
                 <div class="calendar-color-input-row">
-                  <input id="calendar-color" name="calendarColor" type="color" aria-label="排期条颜色" />
+                  <input
+                    id="calendar-color"
+                    name="calendarColor"
+                    type="color"
+                    value="#6f9d9c"
+                    aria-label="排期条颜色"
+                  />
                   <button type="button" id="reset-calendar-color" class="ghost-button small-button">
                     跟随来源默认
                   </button>
@@ -418,6 +453,7 @@
               <label>
                 状态
                 <select id="status" name="status" required></select>
+                <span class="legend-row field-note">“已完成”表示这单完结归档；收齐尾款请用“已结清”。</span>
               </label>
               <label>
                 制作阶段（可选）
@@ -450,18 +486,20 @@
             </form>
           </section>
 
-          <section id="analysis" class="panel analytics-panel quick-nav-target" data-view-group="insights">
-            <div class="panel-header">
-              <div>
-                <p class="section-tag">分析</p>
-                <h2>业务结构</h2>
-              </div>
+        <section id="analysis" class="panel analytics-panel quick-nav-target" data-view-group="insights">
+          <div class="panel-header">
+            <div>
+              <p class="section-tag">分析</p>
+              <h2>业务结构</h2>
+            </div>
+            <div class="panel-header-actions">
+              <button type="button" class="ghost-button small-button panel-toggle-btn" data-panel-collapse data-panel-id="analysis" aria-expanded="true">折叠</button>
               <div class="panel-layout-controls" role="group" aria-label="分析模块布局">
                 <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="up" data-panel-id="analysis">上移</button>
                 <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="down" data-panel-id="analysis">下移</button>
-                <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-collapse data-panel-id="analysis" aria-expanded="true">折叠</button>
               </div>
             </div>
+          </div>
             <div id="breakdown-list" class="breakdown-list"></div>
             <div class="legend-row">
               <span>看哪个分类更赚钱，方便调整主营业方向。</span>
@@ -494,10 +532,10 @@
                     <button id="calendar-create-range" type="button" class="primary-button small-button">新建稿件</button>
                     <button id="calendar-cancel-range" type="button" class="ghost-button small-button" hidden>取消选日期</button>
                   </div>
+                  <button type="button" class="ghost-button small-button panel-toggle-btn" data-panel-collapse data-panel-id="calendar" aria-expanded="true">折叠</button>
                   <div class="panel-layout-controls" role="group" aria-label="月历模块布局">
                     <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="up" data-panel-id="calendar">上移</button>
                     <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="down" data-panel-id="calendar">下移</button>
-                    <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-collapse data-panel-id="calendar" aria-expanded="true">折叠</button>
                   </div>
                 </div>
               </div>
@@ -572,7 +610,7 @@
               </label>
               <label>
                 来源
-                <input id="timeline-draft-source-input" type="text" list="source-options" maxlength="20" placeholder="米画师 / 私单 / 群拍" />
+                <input id="timeline-draft-source-input" type="text" list="source-options" maxlength="20" placeholder="米画师企划邀请 / 米画师橱窗 / 私单" />
               </label>
               <label>
                 优先级
@@ -590,7 +628,6 @@
                   <option value="进行中">进行中</option>
                   <option value="待交付">待交付</option>
                   <option value="已完成">已完成</option>
-                  <option value="已付款">已付款</option>
                   <option value="已处理">已处理</option>
                 </select>
               </label>
@@ -625,10 +662,10 @@
             </div>
             <div class="table-actions">
               <span id="active-table-summary"></span>
+              <button type="button" class="ghost-button small-button panel-toggle-btn" data-panel-collapse data-panel-id="active-list" aria-expanded="true">折叠</button>
               <div class="panel-layout-controls" role="group" aria-label="进行中模块布局">
                 <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="up" data-panel-id="active-list">上移</button>
                 <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="down" data-panel-id="active-list">下移</button>
-                <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-collapse data-panel-id="active-list" aria-expanded="true">折叠</button>
               </div>
             </div>
           </div>
@@ -647,8 +684,8 @@
           <div id="batch-actions" class="batch-actions is-hidden">
             <span id="batch-summary"></span>
             <div class="batch-buttons">
-              <button type="button" id="batch-mark-done" class="ghost-button small-button">批量完成</button>
-              <button type="button" id="batch-mark-paid" class="ghost-button small-button">批量已付款</button>
+              <button type="button" id="batch-mark-done" class="ghost-button small-button">批量完结归档</button>
+              <button type="button" id="batch-mark-paid" class="ghost-button small-button">批量记为已结清</button>
               <button type="button" id="batch-mark-handled" class="ghost-button small-button">批量已处理</button>
               <select id="batch-exception-type" class="batch-select" aria-label="批量异常类型"></select>
               <button type="button" id="apply-batch-exception" class="ghost-button small-button">应用异常</button>
@@ -687,10 +724,10 @@
             </div>
             <div class="table-actions">
               <span id="completed-table-summary"></span>
+              <button type="button" class="ghost-button small-button panel-toggle-btn" data-panel-collapse data-panel-id="done-list" aria-expanded="true">折叠</button>
               <div class="panel-layout-controls" role="group" aria-label="完成模块布局">
                 <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="up" data-panel-id="done-list">上移</button>
                 <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="down" data-panel-id="done-list">下移</button>
-                <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-collapse data-panel-id="done-list" aria-expanded="true">折叠</button>
               </div>
             </div>
           </div>
@@ -734,13 +771,10 @@
               <h2>客户累计</h2>
             </div>
             <div class="panel-header-actions">
-              <button type="button" id="toggle-clients-panel" class="ghost-button small-button" aria-expanded="false">
-                展开客户统计
-              </button>
+              <button type="button" class="ghost-button small-button panel-toggle-btn" data-panel-collapse data-panel-id="clients" aria-expanded="true">折叠</button>
               <div class="panel-layout-controls" role="group" aria-label="客户模块布局">
                 <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="up" data-panel-id="clients">上移</button>
                 <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-move="down" data-panel-id="clients">下移</button>
-                <button type="button" class="ghost-button small-button panel-layout-btn" data-panel-collapse data-panel-id="clients" aria-expanded="true">折叠</button>
               </div>
             </div>
           </div>

@@ -47,14 +47,14 @@ const BUILT_IN_BUSINESS_TYPES = [
   "加项",
 ];
 const BUILT_IN_PRODUCTION_STAGES = ["草稿", "线稿", "铺色", "细化", "完稿"];
-const SOURCES = ["米画师", "画加", "临界", "群拍", "私单", "橱窗", "熟人转介绍", "社媒引流"];
+const SOURCES = ["米画师企划邀请", "画加", "临界", "群拍", "私单", "米画师橱窗", "熟人转介绍", "社媒引流"];
 const SOURCE_OPTIONS = [
-  { value: "米画师", label: "米画师企划邀请" },
+  { value: "米画师企划邀请", label: "米画师企划邀请" },
   { value: "画加", label: "画加" },
   { value: "临界", label: "临界" },
   { value: "群拍", label: "群拍（设拍 / 稿拍）" },
   { value: "私单", label: "私单" },
-  { value: "橱窗", label: "米画师橱窗" },
+  { value: "米画师橱窗", label: "米画师橱窗" },
   { value: "熟人转介绍", label: "熟人转介绍" },
   { value: "社媒引流", label: "社媒引流" },
 ];
@@ -67,36 +67,42 @@ const CURRENCY_OPTIONS = [
 ];
 const FEE_MODES = [
   { value: "standard", label: "默认按比例" },
-  { value: "mhs_project", label: "米画师企划邀请（按到手价）" },
+  { value: "mhs_project", label: "米画师企划邀请（可切换到手/总价）" },
   { value: "mhs_window", label: "米画师橱窗（满20减1）" },
 ];
+const MHS_PROJECT_AMOUNT_MODE_ARTIST = "artist_net";
+const MHS_PROJECT_AMOUNT_MODE_CLIENT = "client_quote";
+const MHS_PROJECT_AMOUNT_MODES = [MHS_PROJECT_AMOUNT_MODE_ARTIST, MHS_PROJECT_AMOUNT_MODE_CLIENT];
+const AMOUNT_INPUT_VALUE_KIND_BASE = "base";
+const AMOUNT_INPUT_VALUE_KIND_QUOTED = "quoted";
 const PRIORITIES = ["普通", "加急", "特快"];
 const USAGE_TYPES = ["私用", "商用", "买断"];
-const STATUSES = ["待沟通", "排期中", "进行中", "待交付", "已完成", "已付款", "已处理"];
+const LEGACY_PAID_STATUS = "已付款";
+const STATUSES = ["待沟通", "排期中", "进行中", "待交付", "已完成", "已处理"];
 const PAYMENT_STATUSES = ["未收款", "已收定金", "已结清"];
 const EXCEPTION_TYPES = ["无", "金主退稿", "金主退部分稿", "金主异常"];
 const EXCEPTION_RESOLUTIONS = ["协商退全款", "协商退部分款", "协商延期", "补偿约定", "拒绝沟通", "其他"];
 const ABNORMAL_EXCEPTION_TYPES = new Set(EXCEPTION_TYPES.filter((type) => type !== "无"));
-const CLOSED_STATUSES = new Set(["已完成", "已付款", "已处理"]);
-const DISALLOWED_ABNORMAL_STATUSES = new Set(["已完成", "已付款"]);
+const CLOSED_STATUSES = new Set(["已完成", "已处理"]);
+const DISALLOWED_ABNORMAL_STATUSES = new Set(["已完成"]);
 const STAGE_EDITABLE_STATUSES = new Set(["排期中", "进行中", "待交付"]);
 const SOURCE_FEE_RATES = {
-  米画师: 0.05,
+  米画师企划邀请: 0.05,
   画加: 0.0525,
   临界: 0,
   群拍: 0,
   私单: 0,
-  橱窗: 0,
+  米画师橱窗: 0,
   熟人转介绍: 0,
   社媒引流: 0,
 };
 const SOURCE_COLORS = {
-  米画师: "#6f9d9c",
+  米画师企划邀请: "#6f9d9c",
   画加: "#5d7ea6",
   临界: "#8a7ad1",
   群拍: "#8f7d63",
   私单: "#d86b2d",
-  橱窗: "#b89f6b",
+  米画师橱窗: "#b89f6b",
   熟人转介绍: "#6d8f57",
   社媒引流: "#8c79ad",
 };
@@ -117,9 +123,22 @@ const VIEW_SECTION_GROUPS = {
 const DEFAULT_COMMON_SECTION_ORDER = [...VIEW_SECTION_GROUPS.common];
 const DEFAULT_SCHEDULE_SECTION_ORDER = [...VIEW_SECTION_GROUPS.schedule];
 const DEFAULT_INSIGHTS_SECTION_ORDER = [...VIEW_SECTION_GROUPS.insights];
+const LEGACY_PANEL_SOURCE_ORDER = [
+  "sync",
+  "filters",
+  "stats-panel",
+  "motivation",
+  "form",
+  "analysis",
+  "calendar",
+  "active-list",
+  "done-list",
+  "clients",
+];
 const LAYOUT_PANEL_IDS = [
   ...new Set([...DEFAULT_COMMON_SECTION_ORDER, ...DEFAULT_SCHEDULE_SECTION_ORDER, ...DEFAULT_INSIGHTS_SECTION_ORDER]),
 ];
+const DEFAULT_PANEL_ORDER = buildLegacyPanelOrder();
 const QUICK_NAV_SECTION_META = {
   sync: { id: "sync", label: "同步" },
   filters: { id: "filters", label: "筛选" },
@@ -150,9 +169,11 @@ const state = {
   clientInsightSettings: loadLocalClientInsightSettings(),
   calendarDayMarks: loadLocalCalendarDayMarks(),
   fxSettings: loadLocalFxSettings(),
+  mhsProjectAmountMode: MHS_PROJECT_AMOUNT_MODE_ARTIST,
   viewMode: initialLayoutPrefs.viewMode,
   calendarDisplayMode: initialLayoutPrefs.calendarDisplayMode,
   scheduleLayoutEditMode: initialLayoutPrefs.scheduleLayoutEditMode,
+  panelOrder: initialLayoutPrefs.panelOrder,
   commonSectionOrder: initialLayoutPrefs.commonSectionOrder,
   scheduleSectionOrder: initialLayoutPrefs.scheduleSectionOrder,
   insightsSectionOrder: initialLayoutPrefs.insightsSectionOrder,
@@ -231,6 +252,7 @@ let supabaseCreateClientFactory = null;
 let timelineDragSession = null;
 let timelineCreateRangeSession = null;
 let timelineDragSuppressClickUntil = 0;
+let serviceWorkerReloadPending = false;
 const TIMELINE_DRAG_PX_THRESHOLD = 8;
 const TIMELINE_DRAG_TIME_THRESHOLD_MS = 120;
 const TIMELINE_DRAG_CLICK_SUPPRESS_MS = 300;
@@ -268,8 +290,6 @@ const elements = {
   twdCnyRateInput: document.querySelector("#twd-cny-rate-input"),
   hkdCnyRateInput: document.querySelector("#hkd-cny-rate-input"),
   fxSettingsSummary: document.querySelector("#fx-settings-summary"),
-  clientsSection: document.querySelector("#clients"),
-  toggleClientsPanel: document.querySelector("#toggle-clients-panel"),
   clientsPanelBody: document.querySelector("#clients-panel-body"),
   clientInsightSummary: document.querySelector("#client-insight-summary"),
   clientInsightList: document.querySelector("#client-insight-list"),
@@ -342,7 +362,11 @@ const elements = {
   sourceOptions: document.querySelector("#source-options"),
   feeMode: document.querySelector("#fee-mode"),
   feeRate: document.querySelector("#fee-rate"),
+  mhsProjectAmountModeRow: document.querySelector("#mhs-project-amount-mode-row"),
+  mhsProjectAmountModeArtist: document.querySelector("#mhs-project-amount-mode-artist"),
+  mhsProjectAmountModeClient: document.querySelector("#mhs-project-amount-mode-client"),
   amountLabel: document.querySelector("#amount-label"),
+  amountNote: document.querySelector("#amount-note"),
   usageType: document.querySelector("#usage-type"),
   usageRate: document.querySelector("#usage-rate"),
   usageRateNote: document.querySelector("#usage-rate-note"),
@@ -524,10 +548,18 @@ async function bootstrap() {
     state.orders = state.localBackupOrders;
     updateAuthUi("当前是本地模式。未配置 Supabase 时，数据只保存在浏览器。");
   }
-  cleanupLegacyDemoData();
+  cleanupLegacyDemoBackup();
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (serviceWorkerReloadPending) return;
+      serviceWorkerReloadPending = true;
+      window.location.reload();
+    });
+    navigator.serviceWorker
+      .register("/sw.js", { scope: "/" })
+      .then((registration) => registration.update().catch(() => {}))
+      .catch(() => {});
   }
 
   render();
@@ -569,10 +601,6 @@ function bindEvents() {
   elements.calendarModeTimeline?.addEventListener("click", () => {
     setCalendarDisplayMode(CALENDAR_DISPLAY_TIMELINE);
   });
-  elements.toggleClientsPanel?.addEventListener("click", () => {
-    togglePanelCollapsed("clients");
-  });
-
   elements.monthFilter.addEventListener("input", (event) => {
     state.filters.month = event.target.value;
     state.calendarMonth = parseMonthInput(event.target.value);
@@ -791,6 +819,12 @@ function bindEvents() {
   elements.businessType.addEventListener("input", () => {
     renderBusinessShortcutList();
   });
+  elements.mhsProjectAmountModeArtist?.addEventListener("click", () => {
+    setMhsProjectAmountMode(MHS_PROJECT_AMOUNT_MODE_ARTIST);
+  });
+  elements.mhsProjectAmountModeClient?.addEventListener("click", () => {
+    setMhsProjectAmountMode(MHS_PROJECT_AMOUNT_MODE_CLIENT);
+  });
   elements.productionStage.addEventListener("blur", () => {
     elements.productionStage.value = normalizeProductionStageValue(elements.productionStage.value);
   });
@@ -799,6 +833,8 @@ function bindEvents() {
     renderWorkHoursPreview();
   });
   elements.source.addEventListener("change", (event) => {
+    const currentRawAmount = elements.amount?.value ?? "";
+    const currentBaseAmount = parseBaseAmountFromDisplayedInput(currentRawAmount);
     const normalizedSource = normalizeSourceValue(event.target.value) || SOURCES[0];
     event.target.value = normalizedSource;
     if (shouldAutoApplySourceFee()) {
@@ -808,9 +844,11 @@ function bindEvents() {
         getDefaultFeeRate(normalizedSource, nextFeeMode),
       );
     }
+    setDisplayedAmountFromBaseAmount(currentBaseAmount, { rawValue: currentRawAmount });
     renderSourceOptions();
     syncCalendarColorInputWithSource();
     updateFeeModeUi();
+    syncUsageRateUi();
     renderWorkHoursPreview();
   });
   elements.source.addEventListener("blur", () => {
@@ -837,11 +875,24 @@ function bindEvents() {
     }
     refreshPendingTimelineDraftFromForm();
   });
+  elements.feeRate.addEventListener("input", () => {
+    updateFeeModeUi();
+    renderWorkHoursPreview();
+  });
+  elements.feeRate.addEventListener("blur", () => {
+    elements.feeRate.value = formatFeeRatePercent(parseFeeRateInput(elements.feeRate.value));
+    updateFeeModeUi();
+    renderWorkHoursPreview();
+  });
   elements.feeMode.addEventListener("change", () => {
+    const currentRawAmount = elements.amount?.value ?? "";
+    const currentBaseAmount = parseBaseAmountFromDisplayedInput(currentRawAmount);
     elements.feeRate.value = formatFeeRatePercent(
       getDefaultFeeRate(elements.source.value, elements.feeMode.value),
     );
+    setDisplayedAmountFromBaseAmount(currentBaseAmount, { rawValue: currentRawAmount });
     updateFeeModeUi();
+    syncUsageRateUi();
     renderWorkHoursPreview();
   });
   elements.usageType.addEventListener("change", () => {
@@ -850,18 +901,24 @@ function bindEvents() {
     renderWorkHoursPreview();
   });
   elements.usageRate.addEventListener("input", () => {
+    updateFeeModeUi();
     syncUsageRateUi({ previewOnly: true });
     renderWorkHoursPreview();
   });
   elements.usageRate.addEventListener("blur", () => {
     elements.usageRate.value = formatUsageRatePercent(parseUsageRateInput(elements.usageRate.value));
+    updateFeeModeUi();
     syncUsageRateUi();
     renderWorkHoursPreview();
   });
   elements.amount.addEventListener("input", () => {
+    updateFeeModeUi();
     syncUsageRateUi({ previewOnly: true });
   });
   elements.amount.addEventListener("blur", () => {
+    const rawAmount = elements.amount?.value ?? "";
+    setDisplayedAmountFromBaseAmount(parseBaseAmountFromDisplayedInput(rawAmount), { rawValue: rawAmount });
+    updateFeeModeUi();
     syncUsageRateUi();
   });
   elements.currency.addEventListener("change", () => {
@@ -874,7 +931,7 @@ function bindEvents() {
   elements.exportCsv.addEventListener("click", exportCsv);
   elements.importJson.addEventListener("change", importJson);
   elements.batchMarkDone.addEventListener("click", () => applyBatchStatus("已完成"));
-  elements.batchMarkPaid.addEventListener("click", () => applyBatchStatus("已付款"));
+  elements.batchMarkPaid.addEventListener("click", () => applyBatchSettlePayment());
   elements.batchMarkHandled.addEventListener("click", () => applyBatchStatus("已处理"));
   elements.applyBatchException.addEventListener("click", () => {
     applyBatchExceptionType(elements.batchExceptionType.value);
@@ -1143,6 +1200,8 @@ function bindEvents() {
     refreshPendingTimelineDraftFromForm();
   });
   elements.timelineDraftSourceInput?.addEventListener("blur", () => {
+    const currentRawAmount = elements.amount?.value ?? "";
+    const currentBaseAmount = parseBaseAmountFromDisplayedInput(currentRawAmount);
     const normalizedSource = normalizeSourceValue(elements.source.value) || SOURCES[0];
     elements.source.value = normalizedSource;
     if (shouldAutoApplySourceFee()) {
@@ -1150,12 +1209,14 @@ function bindEvents() {
       elements.feeMode.value = nextFeeMode;
       elements.feeRate.value = formatFeeRatePercent(getDefaultFeeRate(normalizedSource, nextFeeMode));
     }
+    setDisplayedAmountFromBaseAmount(currentBaseAmount, { rawValue: currentRawAmount });
     if (elements.timelineDraftSourceInput) {
       elements.timelineDraftSourceInput.value = normalizedSource;
     }
     renderSourceOptions();
     syncCalendarColorInputWithSource();
     updateFeeModeUi();
+    syncUsageRateUi();
     renderWorkHoursPreview();
     refreshPendingTimelineDraftFromForm();
   });
@@ -1183,6 +1244,9 @@ function bindEvents() {
   elements.timelineDraftAmountInput?.addEventListener("input", (event) => {
     const rawValue = String(event.target.value || "");
     elements.amount.value = rawValue;
+    updateFeeModeUi();
+    syncUsageRateUi({ previewOnly: true });
+    renderWorkHoursPreview();
     refreshPendingTimelineDraftFromForm();
   });
   elements.timelineDraftColorInput?.addEventListener("input", (event) => {
@@ -2561,7 +2625,7 @@ function buildOrderFromCurrentForm() {
     currency: elements.currency.value,
     fxRateSnapshot: previousOrder?.fxRateSnapshot,
     priority: elements.priority.value,
-    amount: Number(elements.amount.value),
+    amount: parseBaseAmountFromDisplayedInput(elements.amount.value),
     receivedAmount: Number(elements.receivedAmount.value),
     paymentStatus: elements.paymentStatus.value,
     startDate: elements.startDate.value,
@@ -2592,7 +2656,7 @@ function getOrderSubmitValidationMessage(order) {
     return "动工日期不能晚于截稿日期。";
   }
   if (isAbnormal(order) && DISALLOWED_ABNORMAL_STATUSES.has(order.status)) {
-    return "异常单请先完成异常处理，不能直接设为已完成或已付款。";
+    return "异常单请先完成异常处理，不能直接完结归档。";
   }
   return "";
 }
@@ -2751,6 +2815,7 @@ function resetForm() {
   elements.usageRate.value = "0";
   elements.currency.value = "CNY";
   elements.priority.value = PRIORITIES[0];
+  setDisplayedAmountFromBaseAmount(0, { rawValue: "" });
   elements.receivedAmount.value = "0";
   elements.paymentStatus.value = PAYMENT_STATUSES[0];
   elements.status.value = STATUSES[0];
@@ -2829,42 +2894,85 @@ function getPanelGroup(panelId) {
   return "";
 }
 
-function getPanelOrder(group) {
-  if (group === "common") return normalizeSectionOrder(state.commonSectionOrder, DEFAULT_COMMON_SECTION_ORDER);
-  if (group === "schedule") return normalizeSectionOrder(state.scheduleSectionOrder, DEFAULT_SCHEDULE_SECTION_ORDER);
-  if (group === "insights") return normalizeSectionOrder(state.insightsSectionOrder, DEFAULT_INSIGHTS_SECTION_ORDER);
-  return [];
+function getPanelOrder(group = "") {
+  const globalOrder = normalizePanelOrder(state.panelOrder, DEFAULT_PANEL_ORDER);
+  if (!group) return globalOrder;
+  return globalOrder.filter((id) => getPanelGroup(id) === group);
 }
 
-function setPanelOrder(group, order) {
-  const normalized =
-    group === "common"
-      ? normalizeSectionOrder(order, DEFAULT_COMMON_SECTION_ORDER)
-      : group === "schedule"
-        ? normalizeSectionOrder(order, DEFAULT_SCHEDULE_SECTION_ORDER)
-        : group === "insights"
-          ? normalizeSectionOrder(order, DEFAULT_INSIGHTS_SECTION_ORDER)
-          : [];
-  if (!normalized.length) return;
-  if (group === "common") state.commonSectionOrder = normalized;
-  if (group === "schedule") state.scheduleSectionOrder = normalized;
-  if (group === "insights") state.insightsSectionOrder = normalized;
+function getFocusedPanelIds({
+  panelOrder = getPanelOrder(),
+  mode = state.viewMode,
+} = {}) {
+  const normalizedMode = normalizeViewMode(mode, VIEW_MODE_SCHEDULE);
+  return normalizePanelOrder(panelOrder, DEFAULT_PANEL_ORDER).filter((id) => {
+    if (id === "form") {
+      return normalizedMode === VIEW_MODE_SCHEDULE;
+    }
+    if (id === "analysis") {
+      return normalizedMode === VIEW_MODE_INSIGHTS;
+    }
+    const group = getPanelGroup(id);
+    return group === "common" || group === normalizedMode;
+  });
+}
+
+function getVisiblePanelIds({
+  panelOrder = getPanelOrder(),
+} = {}) {
+  return normalizePanelOrder(panelOrder, DEFAULT_PANEL_ORDER);
+}
+
+function setPanelOrder(order) {
+  const normalized = normalizePanelOrder(order, DEFAULT_PANEL_ORDER);
+  state.panelOrder = normalized;
+  state.commonSectionOrder = normalized.filter((id) => getPanelGroup(id) === "common");
+  state.scheduleSectionOrder = normalized.filter((id) => getPanelGroup(id) === "schedule");
+  state.insightsSectionOrder = normalized.filter((id) => getPanelGroup(id) === "insights");
+}
+
+function getPanelLayoutNode(panelId) {
+  return document.getElementById(String(panelId || ""));
+}
+
+function capturePanelViewportAnchor(panelId) {
+  const node = getPanelLayoutNode(panelId);
+  if (!node || node.hidden) return null;
+  return {
+    panelId: String(panelId || ""),
+    top: node.getBoundingClientRect().top,
+  };
+}
+
+function restorePanelViewportAnchor(anchor) {
+  if (!anchor) return;
+  const node = getPanelLayoutNode(anchor.panelId);
+  if (!node || node.hidden) return;
+  const delta = node.getBoundingClientRect().top - anchor.top;
+  if (Math.abs(delta) < 1) return;
+  window.scrollBy(0, delta);
 }
 
 function movePanel(panelId, direction) {
   const safeId = String(panelId || "");
   const normalizedDirection = direction === "up" ? "up" : direction === "down" ? "down" : "";
-  const group = getPanelGroup(safeId);
-  if (!group || !normalizedDirection) return;
-  const nextOrder = getPanelOrder(group);
-  const currentIndex = nextOrder.indexOf(safeId);
+  if (!getPanelGroup(safeId) || !normalizedDirection) return;
+  const anchor = capturePanelViewportAnchor(safeId);
+  const visibleOrder = getVisiblePanelIds();
+  const currentIndex = visibleOrder.indexOf(safeId);
   if (currentIndex < 0) return;
   const targetIndex = normalizedDirection === "up" ? currentIndex - 1 : currentIndex + 1;
-  if (targetIndex < 0 || targetIndex >= nextOrder.length) return;
-  [nextOrder[currentIndex], nextOrder[targetIndex]] = [nextOrder[targetIndex], nextOrder[currentIndex]];
-  setPanelOrder(group, nextOrder);
+  if (targetIndex < 0 || targetIndex >= visibleOrder.length) return;
+  const targetId = visibleOrder[targetIndex];
+  const nextOrder = getPanelOrder();
+  const sourceIndex = nextOrder.indexOf(safeId);
+  const swapIndex = nextOrder.indexOf(targetId);
+  if (sourceIndex < 0 || swapIndex < 0) return;
+  [nextOrder[sourceIndex], nextOrder[swapIndex]] = [nextOrder[swapIndex], nextOrder[sourceIndex]];
+  setPanelOrder(nextOrder);
   persistLayoutPrefs();
   render();
+  restorePanelViewportAnchor(anchor);
   setActiveSectionByViewport();
 }
 
@@ -2880,39 +2988,22 @@ function togglePanelCollapsed(panelId) {
 }
 
 function applyPanelLayout() {
-  const commonOrder = getPanelOrder("common");
-  const scheduleOrder = getPanelOrder("schedule");
-  const insightsOrder = getPanelOrder("insights");
-  const commonOrderMap = new Map(commonOrder.map((id, index) => [id, index + 1]));
-  const orderOffset = commonOrder.length;
-  const scheduleOrderMap = new Map(scheduleOrder.map((id, index) => [id, orderOffset + index + 1]));
-  const insightsOrderMap = new Map(insightsOrder.map((id, index) => [id, orderOffset + index + 1]));
+  const visibleOrder = getVisiblePanelIds();
+  const orderMap = new Map(visibleOrder.map((id, index) => [id, index + 1]));
 
-  DEFAULT_COMMON_SECTION_ORDER.forEach((id) => {
+  const viewSwitcher = document.querySelector(".view-switcher");
+  if (viewSwitcher) viewSwitcher.style.order = "0";
+
+  LAYOUT_PANEL_IDS.forEach((id) => {
     const node = document.getElementById(id);
     if (!node) return;
-    node.style.order = String(commonOrderMap.get(id) || DEFAULT_COMMON_SECTION_ORDER.indexOf(id) + 1);
+    const order = orderMap.get(id);
+    node.style.order = order ? String(order) : "";
   });
 
   if (elements.contentSlot) {
-    const slotOrder =
-      state.viewMode === VIEW_MODE_SCHEDULE
-        ? scheduleOrderMap.get("form") || 1
-        : insightsOrderMap.get("analysis") || DEFAULT_INSIGHTS_SECTION_ORDER.indexOf("analysis") + 1;
-    elements.contentSlot.style.order = String(slotOrder);
+    elements.contentSlot.style.order = "";
   }
-
-  DEFAULT_SCHEDULE_SECTION_ORDER.filter((id) => id !== "form").forEach((id) => {
-    const node = document.getElementById(id);
-    if (!node) return;
-    node.style.order = String(scheduleOrderMap.get(id) || DEFAULT_SCHEDULE_SECTION_ORDER.indexOf(id) + 1);
-  });
-
-  DEFAULT_INSIGHTS_SECTION_ORDER.filter((id) => id !== "analysis").forEach((id) => {
-    const node = document.getElementById(id);
-    if (!node) return;
-    node.style.order = String(insightsOrderMap.get(id) || DEFAULT_INSIGHTS_SECTION_ORDER.indexOf(id) + 1);
-  });
 
   LAYOUT_PANEL_IDS.forEach((id) => {
     const node = document.getElementById(id);
@@ -2922,16 +3013,16 @@ function applyPanelLayout() {
 }
 
 function renderPanelControls() {
+  const visibleOrder = getVisiblePanelIds();
   document.querySelectorAll("[data-panel-move]").forEach((button) => {
     const panelId = String(button.dataset.panelId || "");
-    const order = getPanelOrder(getPanelGroup(panelId));
-    const panelIndex = order.indexOf(panelId);
+    const panelIndex = visibleOrder.indexOf(panelId);
     const direction = String(button.dataset.panelMove || "");
     button.disabled =
       panelIndex < 0 ||
       state.busy ||
       (direction === "up" && panelIndex === 0) ||
-      (direction === "down" && panelIndex === order.length - 1);
+      (direction === "down" && panelIndex === visibleOrder.length - 1);
   });
   document.querySelectorAll("[data-panel-collapse]").forEach((button) => {
     const panelId = String(button.dataset.panelId || "");
@@ -2944,7 +3035,11 @@ function renderPanelControls() {
 
 function setViewMode(mode) {
   const nextMode = normalizeViewMode(mode, VIEW_MODE_SCHEDULE);
-  if (nextMode === state.viewMode) return;
+  if (nextMode === state.viewMode) {
+    applyViewVisibility();
+    setActiveSectionByViewport();
+    return;
+  }
   if (nextMode !== VIEW_MODE_SCHEDULE) {
     cancelCalendarCreateMode({ silent: true });
   }
@@ -2952,10 +3047,11 @@ function setViewMode(mode) {
   state.quickNavOpen = false;
   state.quickNavPinnedSectionId = "";
   state.quickNavPinnedUntil = 0;
-  state.activeSectionId = getQuickNavSectionsByView(nextMode)[0]?.id || "sync";
+  const focusIds = getFocusedPanelIds({ mode: nextMode });
+  state.activeSectionId = focusIds.find((id) => getPanelGroup(id) === nextMode) || focusIds[0] || "sync";
   persistLayoutPrefs();
   render();
-  setActiveSectionByViewport();
+  scrollToSection(state.activeSectionId, { behavior: "auto" });
 }
 
 function setCalendarDisplayMode(mode) {
@@ -2969,23 +3065,21 @@ function setCalendarDisplayMode(mode) {
 function toggleScheduleLayoutEditMode() {
   state.scheduleLayoutEditMode = !state.scheduleLayoutEditMode;
   persistLayoutPrefs();
-  applyViewVisibility();
+  render();
+  setActiveSectionByViewport();
 }
 
 function getInitialActiveSectionId(layoutPrefs = initialLayoutPrefs) {
-  const mode = normalizeViewMode(layoutPrefs?.viewMode, VIEW_MODE_SCHEDULE);
-  const commonIds = normalizeSectionOrder(layoutPrefs?.commonSectionOrder, DEFAULT_COMMON_SECTION_ORDER);
-  const modeIds =
-    mode === VIEW_MODE_SCHEDULE
-      ? normalizeSectionOrder(layoutPrefs?.scheduleSectionOrder, DEFAULT_SCHEDULE_SECTION_ORDER)
-      : normalizeSectionOrder(layoutPrefs?.insightsSectionOrder, DEFAULT_INSIGHTS_SECTION_ORDER);
-  const ids = [...commonIds, ...modeIds];
+  const ids = getFocusedPanelIds({
+    panelOrder: normalizePanelOrder(layoutPrefs?.panelOrder, buildLegacyPanelOrder(layoutPrefs)),
+    mode: normalizeViewMode(layoutPrefs?.viewMode, VIEW_MODE_SCHEDULE),
+  });
   return ids.find((id) => QUICK_NAV_SECTION_META[id]) || "sync";
 }
 
 function applyViewVisibility() {
   const mode = normalizeViewMode(state.viewMode, VIEW_MODE_SCHEDULE);
-  const visibleGroups = new Set(["common", mode]);
+  const visibleGroups = new Set(["common", VIEW_MODE_SCHEDULE, VIEW_MODE_INSIGHTS]);
   document.querySelectorAll("[data-view-group]").forEach((node) => {
     node.hidden = !visibleGroups.has(node.dataset.viewGroup);
   });
@@ -3009,16 +3103,8 @@ function applyViewVisibility() {
     elements.scheduleLayoutToggle.classList.toggle("is-active", state.scheduleLayoutEditMode);
     elements.scheduleLayoutToggle.setAttribute("aria-pressed", state.scheduleLayoutEditMode ? "true" : "false");
   }
-  if (elements.clientsSection) {
-    elements.clientsSection.classList.toggle("panel-collapsed", Boolean(state.collapsedPanels?.clients));
-  }
   if (elements.clientsPanelBody) {
     elements.clientsPanelBody.classList.toggle("panel-body-collapsed", Boolean(state.collapsedPanels?.clients));
-  }
-  if (elements.toggleClientsPanel) {
-    const collapsed = Boolean(state.collapsedPanels?.clients);
-    elements.toggleClientsPanel.textContent = collapsed ? "展开客户统计" : "收起客户统计";
-    elements.toggleClientsPanel.setAttribute("aria-expanded", collapsed ? "false" : "true");
   }
   applyPanelLayout();
   renderPanelControls();
@@ -3080,13 +3166,7 @@ function render() {
 }
 
 function getQuickNavSectionsByView(mode = state.viewMode) {
-  const normalizedMode = normalizeViewMode(mode, VIEW_MODE_SCHEDULE);
-  const commonIds = normalizeSectionOrder(state.commonSectionOrder, DEFAULT_COMMON_SECTION_ORDER);
-  const modeIds =
-    normalizedMode === VIEW_MODE_SCHEDULE
-      ? normalizeSectionOrder(state.scheduleSectionOrder, DEFAULT_SCHEDULE_SECTION_ORDER)
-      : normalizeSectionOrder(state.insightsSectionOrder, DEFAULT_INSIGHTS_SECTION_ORDER);
-  const ids = [...commonIds, ...modeIds];
+  const ids = getFocusedPanelIds({ mode });
   return ids.map((id) => QUICK_NAV_SECTION_META[id]).filter(Boolean);
 }
 
@@ -3191,7 +3271,7 @@ function getPinnedQuickNavSection() {
   return "";
 }
 
-function scrollToSection(id) {
+function scrollToSection(id, { behavior = "smooth" } = {}) {
   const target = document.getElementById(String(id || ""));
   if (!target) return;
   pinQuickNavSection(target.id);
@@ -3207,7 +3287,7 @@ function scrollToSection(id) {
   if (shouldRender) {
     renderQuickNav();
   }
-  target.scrollIntoView({ behavior: "smooth", block: "start" });
+  target.scrollIntoView({ behavior, block: "start" });
 }
 
 function setActiveSectionByViewport() {
@@ -4092,7 +4172,7 @@ function buildPendingTimelineDraftOrder(startDate, dueDate) {
     fxRateSnapshot:
       normalizeCurrency(elements.currency?.value) === "CNY" ? null : getConfiguredFxRate(elements.currency?.value),
     priority: elements.priority?.value || PRIORITIES[0],
-    amount: Number(elements.amount?.value || 0),
+    amount: parseBaseAmountFromDisplayedInput(elements.amount?.value || 0),
     receivedAmount: Number(elements.receivedAmount?.value || 0),
     paymentStatus: elements.paymentStatus?.value || PAYMENT_STATUSES[0],
     startDate: nextRange.startDate,
@@ -4725,7 +4805,7 @@ function getTimelineStatusShortLabel(order) {
     进: "进行中",
     交: "待交付",
     完: "已完成",
-    付: "已付款",
+    付: "已完成",
     处: "已处理",
   };
   return shortStatusMap[rawStatus] || rawStatus;
@@ -5535,8 +5615,8 @@ function renderTable(
       const { action, id } = event.currentTarget.dataset;
       if (action === "complete") {
         updateOrderStatus(id, "已完成");
-      } else if (action === "paid") {
-        updateOrderStatus(id, "已付款");
+      } else if (action === "settlePayment") {
+        settleOrderPayment(id);
       } else if (action === "revertToActive") {
         revertOrderToActive(id);
       } else if (action === "handled") {
@@ -5613,8 +5693,8 @@ function fillFormFromOrder(order, title, isEditing = false, scrollToForm = true)
   elements.usageRate.value = formatUsageRatePercent(order.usageRate);
   elements.currency.value = normalizeCurrency(order.currency);
   elements.priority.value = order.priority || PRIORITIES[0];
-  elements.amount.value = order.amount ?? "";
-  elements.receivedAmount.value = order.receivedAmount ?? 0;
+  setDisplayedAmountFromBaseAmount(order.amount ?? 0, { feeMode: order.feeMode });
+  elements.receivedAmount.value = formatMoney(order.receivedAmount ?? 0);
   elements.paymentStatus.value = normalizePaymentStatus(order);
   elements.startDate.value = order.startDate || "";
   elements.dueDate.value = order.dueDate || "";
@@ -5725,12 +5805,12 @@ function renderQuickActionButtons(order) {
 
   if (!isClosed(order)) {
     actions.push(
-      `<button class="link-button" data-action="complete" data-id="${escapedId}" ${disabled}>完成</button>`,
+      `<button class="link-button" data-action="complete" data-id="${escapedId}" ${disabled}>完结归档</button>`,
     );
   }
-  if (order.status !== "已付款" && order.status !== "已处理") {
+  if (normalizePaymentStatus(order) !== "已结清" && order.status !== "已处理") {
     actions.push(
-      `<button class="link-button" data-action="paid" data-id="${escapedId}" ${disabled}>已付款</button>`,
+      `<button class="link-button" data-action="settlePayment" data-id="${escapedId}" ${disabled}>记为已结清</button>`,
     );
   }
   if (isClosed(order) && order.status !== "已处理") {
@@ -5787,8 +5867,8 @@ async function applyBatchStatus(status) {
     return;
   }
   const targetOrders = visibleOrders.filter((order) => targetIds.includes(order.id));
-  if ((status === "已完成" || status === "已付款") && targetOrders.some(isAbnormal)) {
-    updateAuthUi("选中的稿件里有异常单，请先处理异常后再批量标记完成或已付款。");
+  if (status === "已完成" && targetOrders.some(isAbnormal)) {
+    updateAuthUi("选中的稿件里有异常单，请先处理异常后再批量完结归档。");
     return;
   }
   if (status === "已处理" && targetOrders.some((order) => !isAbnormal(order))) {
@@ -5796,7 +5876,21 @@ async function applyBatchStatus(status) {
     return;
   }
 
-  const success = await updateOrdersStatus(targetIds, status, `已批量更新 ${targetIds.length} 条稿件。`);
+  const successMessage = status === "已完成" ? `已批量完结归档 ${targetIds.length} 条稿件。` : `已批量更新 ${targetIds.length} 条稿件。`;
+  const success = await updateOrdersStatus(targetIds, status, successMessage);
+  if (success) {
+    clearSelection();
+  }
+}
+
+async function applyBatchSettlePayment() {
+  const visibleOrders = filteredOrders();
+  const targetIds = getSelectedVisibleIds(visibleOrders);
+  if (!targetIds.length) {
+    updateAuthUi("先勾选要批量处理的稿件。");
+    return;
+  }
+  const success = await settleOrdersPayment(targetIds, `已将 ${targetIds.length} 条稿件记为已结清。`);
   if (success) {
     clearSelection();
   }
@@ -5845,11 +5939,15 @@ async function updateOrderStatus(id, status) {
   await updateOrdersStatus([id], status, "稿件状态已更新。");
 }
 
+async function settleOrderPayment(id) {
+  await settleOrdersPayment([id], "收款状态已更新为已结清。");
+}
+
 async function revertOrderToActive(id) {
   const order = state.orders.find((o) => o.id === id);
   if (!order) return;
   if (!isClosed(order) || order.status === "已处理") {
-    updateAuthUi("只有已完成或已付款的稿件可以改回进行中。");
+    updateAuthUi("只有已完结归档的稿件可以改回进行中。");
     return;
   }
   const updatedOrders = state.orders.map((item) => {
@@ -5873,11 +5971,43 @@ async function revertOrderToActive(id) {
   }
 }
 
+async function settleOrdersPayment(ids, successMessage) {
+  if (!ids.length) return false;
+  const affectedOrders = state.orders.filter((item) => ids.includes(item.id));
+  if (affectedOrders.some(isAbnormal)) {
+    updateAuthUi("异常单请先完成异常处理，再手动确认是否已结清。");
+    return false;
+  }
+
+  const updatedOrders = state.orders.map((item) => {
+    if (!ids.includes(item.id)) return item;
+    const next = {
+      ...item,
+      receivedAmount: calculateGrossAmount(item),
+      paymentStatus: "已结清",
+    };
+    return normalizeOrder(next);
+  });
+
+  setBusy(true);
+  try {
+    await persistOrders(updatedOrders, ids);
+    updateAuthUi(successMessage);
+    return true;
+  } catch (error) {
+    updateAuthUi(mapAuthError(error));
+    return false;
+  } finally {
+    setBusy(false);
+    render();
+  }
+}
+
 async function updateOrdersStatus(ids, status, successMessage) {
   if (!ids.length) return false;
   const affectedOrders = state.orders.filter((item) => ids.includes(item.id));
-  if ((status === "已完成" || status === "已付款") && affectedOrders.some(isAbnormal)) {
-    updateAuthUi("异常单请先完成异常处理，不能直接设为已完成或已付款。");
+  if (status === "已完成" && affectedOrders.some(isAbnormal)) {
+    updateAuthUi("异常单请先完成异常处理，不能直接完结归档。");
     return false;
   }
   if (status === "已处理" && affectedOrders.some((item) => !isAbnormal(item))) {
@@ -5892,11 +6022,6 @@ async function updateOrdersStatus(ids, status, successMessage) {
     const next = { ...item, status };
     if (status === "已完成" || status === "已处理") {
       next.completedDate = next.completedDate || today;
-    }
-    if (status === "已付款") {
-      next.completedDate = next.completedDate || today;
-      next.receivedAmount = calculateGrossAmount(next);
-      next.paymentStatus = "已结清";
     }
     if (status === "已处理") {
       next.exceptionPreviousStatus =
@@ -5959,7 +6084,7 @@ async function upsertRemoteOrders(orders, { refresh = true } = {}) {
 }
 
 function statusChipClassName(status) {
-  return status === "已完成" || status === "已付款"
+  return status === "已完成"
     ? "done"
     : status === "已处理"
       ? "handled"
@@ -5975,7 +6100,7 @@ function renderStaticStatusChip(status) {
 function renderStatusChip(order) {
   const status = order.status;
   const className =
-    status === "已完成" || status === "已付款"
+    status === "已完成"
       ? "done"
       : status === "已处理"
         ? "handled"
@@ -6108,7 +6233,7 @@ function renderAmountContent(order) {
 
   if (feeMode === "mhs_project" && order.feeRate > 0) {
     rows.push(
-      `<div class="legend-row">企划报价 ${formatMoneyWithOriginal(
+      `<div class="legend-row">邀请总价 ${formatMoneyWithOriginal(
         calculateQuotedAmountCny(order),
         calculateQuotedAmount(order),
         currency,
@@ -6796,7 +6921,7 @@ function buildBusinessTemplateFromForm() {
         ? null
         : getConfiguredFxRate(elements.currency?.value),
     priority: elements.priority?.value,
-    amount: Number(elements.amount?.value),
+    amount: parseBaseAmountFromDisplayedInput(elements.amount?.value),
     receivedAmount: Number(elements.receivedAmount?.value),
     paymentStatus: elements.paymentStatus?.value,
     workHours: elements.workHours?.value,
@@ -6821,7 +6946,7 @@ function applyBusinessTemplateToForm(template) {
   elements.usageRate.value = formatUsageRatePercent(normalized.usageRate);
   elements.currency.value = normalized.currency;
   elements.priority.value = normalized.priority;
-  elements.amount.value = normalized.amount > 0 ? formatMoney(normalized.amount) : "";
+  setDisplayedAmountFromBaseAmount(normalized.amount, { feeMode: normalized.feeMode });
   elements.receivedAmount.value = formatMoney(normalized.receivedAmount);
   elements.paymentStatus.value = normalized.paymentStatus;
   elements.workHours.value = normalized.workHours > 0 ? formatHours(normalized.workHours) : "";
@@ -6986,7 +7111,10 @@ function normalizeBusinessTypeValue(value) {
 }
 
 function normalizeSourceValue(value) {
-  return String(value || "").trim().slice(0, 20);
+  const normalized = String(value || "").trim().slice(0, 20);
+  if (normalized === "米画师") return "米画师企划邀请";
+  if (normalized === "橱窗") return "米画师橱窗";
+  return normalized;
 }
 
 function normalizeProductionStageValue(value) {
@@ -7044,13 +7172,199 @@ function normalizeFeeMode(value) {
 
 function getSuggestedFeeMode(source) {
   const normalizedSource = normalizeSourceValue(source);
-  if (normalizedSource === "米画师") return "mhs_project";
-  if (normalizedSource === "橱窗") return "mhs_window";
+  if (normalizedSource === "米画师企划邀请") return "mhs_project";
+  if (normalizedSource === "米画师橱窗") return "mhs_window";
   return "standard";
 }
 
 function getFeeModeLabel(feeMode) {
   return FEE_MODES.find((item) => item.value === feeMode)?.label || "默认按比例";
+}
+
+function normalizeMhsProjectAmountMode(value) {
+  return MHS_PROJECT_AMOUNT_MODES.includes(value) ? value : MHS_PROJECT_AMOUNT_MODE_ARTIST;
+}
+
+function getAmountInputValueKindForMode(
+  feeMode = elements.feeMode?.value,
+  amountMode = state.mhsProjectAmountMode,
+) {
+  return normalizeFeeMode(feeMode) === "mhs_project" &&
+    normalizeMhsProjectAmountMode(amountMode) === MHS_PROJECT_AMOUNT_MODE_CLIENT
+    ? AMOUNT_INPUT_VALUE_KIND_QUOTED
+    : AMOUNT_INPUT_VALUE_KIND_BASE;
+}
+
+function getCurrentFormFeeRate(
+  source = elements.source?.value,
+  feeMode = elements.feeMode?.value,
+  feeRateValue = elements.feeRate?.value,
+) {
+  if (feeRateValue === "" || feeRateValue == null) {
+    return getDefaultFeeRate(source, feeMode);
+  }
+  return parseFeeRateInput(feeRateValue);
+}
+
+function calculateMhsProjectGrossFromQuotedAmount(quotedAmount, feeRate) {
+  const quoted = normalizeMoneyValue(quotedAmount);
+  const rate = Math.min(Math.max(Number(feeRate) || 0, 0), 1);
+  if (!quoted) return 0;
+  if (rate <= 0) return quoted;
+
+  const maxFee = Math.max(0, Math.ceil(quoted * rate) + 2);
+  for (let fee = 0; fee <= maxFee; fee += 1) {
+    const gross = roundMoney(quoted - fee, 2);
+    if (gross < 0) break;
+    if (Math.abs(roundMoney(gross + Math.ceil(gross * rate), 2) - quoted) < 0.000001) {
+      return gross;
+    }
+  }
+
+  return roundMoney(Math.max(quoted - Math.ceil((quoted * rate) / (1 + rate)), 0), 2);
+}
+
+function calculateBaseAmountFromGrossAmount(grossAmount, usageType, usageRate) {
+  const gross = normalizeMoneyValue(grossAmount);
+  const normalizedUsageType = normalizeUsageType(usageType);
+  const normalizedUsageRate = normalizeUsageRate(usageRate, normalizedUsageType);
+  if (!gross) return 0;
+  if (normalizedUsageType === "私用" || normalizedUsageRate <= 0) {
+    return gross;
+  }
+
+  const approxCents = Math.round((gross / (1 + normalizedUsageRate)) * 100);
+  const deltas = [0, -1, 1, -2, 2, -3, 3];
+  for (const delta of deltas) {
+    const candidateCents = approxCents + delta;
+    if (candidateCents < 0) continue;
+    const candidate = roundMoney(candidateCents / 100, 2);
+    if (
+      Math.abs(
+        calculateGrossAmount({
+          amount: candidate,
+          usageType: normalizedUsageType,
+          usageRate: normalizedUsageRate,
+        }) - gross,
+      ) < 0.000001
+    ) {
+      return candidate;
+    }
+  }
+
+  return roundMoney(gross / (1 + normalizedUsageRate), 2);
+}
+
+function parseBaseAmountFromDisplayedInput(
+  rawValue = elements.amount?.value,
+  {
+    valueKind = elements.amount?.dataset.valueKind || AMOUNT_INPUT_VALUE_KIND_BASE,
+    feeRate = getCurrentFormFeeRate(),
+    usageType = elements.usageType?.value,
+    usageRate = parseUsageRateInput(elements.usageRate?.value),
+  } = {},
+) {
+  const normalizedValue = normalizeMoneyValue(rawValue);
+  if (!normalizedValue) return 0;
+  if (valueKind !== AMOUNT_INPUT_VALUE_KIND_QUOTED) {
+    return normalizedValue;
+  }
+
+  const grossAmount = calculateMhsProjectGrossFromQuotedAmount(normalizedValue, feeRate);
+  return calculateBaseAmountFromGrossAmount(grossAmount, usageType, usageRate);
+}
+
+function buildPreviewOrderFromForm(overrides = {}) {
+  const previewSource = normalizeSourceValue(overrides.source ?? elements.source?.value) || SOURCES[0];
+  const previewFeeMode = normalizeFeeMode(overrides.feeMode ?? (elements.feeMode?.value || "standard"));
+  const previewCurrency = normalizeCurrency(overrides.currency ?? elements.currency?.value);
+  const previewUsageType = normalizeUsageType(overrides.usageType ?? elements.usageType?.value);
+  const previewUsageRate = normalizeUsageRate(
+    overrides.usageRate ?? parseUsageRateInput(elements.usageRate?.value),
+    previewUsageType,
+  );
+  const previewFeeRate =
+    overrides.feeRate ?? getCurrentFormFeeRate(previewSource, previewFeeMode, elements.feeRate?.value);
+  const fxEnabled = normalizeFxSettings(state.fxSettings).enabled;
+  const amountBase =
+    overrides.amountBase ??
+    parseBaseAmountFromDisplayedInput(overrides.displayAmount ?? elements.amount?.value, {
+      valueKind:
+        overrides.valueKind ??
+        elements.amount?.dataset.valueKind ??
+        getAmountInputValueKindForMode(previewFeeMode, state.mhsProjectAmountMode),
+      feeRate: previewFeeRate,
+      usageType: previewUsageType,
+      usageRate: previewUsageRate,
+    });
+
+  return normalizeOrder({
+    source: previewSource,
+    feeMode: previewFeeMode,
+    feeRate: previewFeeRate,
+    usageType: previewUsageType,
+    usageRate: previewUsageRate,
+    currency: previewCurrency,
+    fxRateSnapshot:
+      overrides.fxRateSnapshot ??
+      (fxEnabled && previewCurrency !== "CNY" ? getConfiguredFxRate(previewCurrency) : null),
+    amount: amountBase,
+    receivedAmount: overrides.receivedAmount ?? Number(elements.receivedAmount?.value || 0),
+    paymentStatus: overrides.paymentStatus ?? elements.paymentStatus?.value ?? PAYMENT_STATUSES[0],
+    workHours: overrides.workHours ?? sanitizeWorkHours(elements.workHours?.value),
+  });
+}
+
+function formatDisplayedAmountFromBaseAmount(
+  baseAmount,
+  {
+    feeMode = elements.feeMode?.value,
+    amountMode = state.mhsProjectAmountMode,
+    rawValue,
+  } = {},
+) {
+  const normalizedBaseAmount = normalizeMoneyValue(baseAmount);
+  const valueKind = getAmountInputValueKindForMode(feeMode, amountMode);
+  if (!normalizedBaseAmount) {
+    if (typeof rawValue === "string" && rawValue.trim() === "") return "";
+    return formatMoney(0);
+  }
+  if (valueKind !== AMOUNT_INPUT_VALUE_KIND_QUOTED) {
+    return formatMoney(normalizedBaseAmount);
+  }
+
+  const previewOrder = buildPreviewOrderFromForm({
+    feeMode,
+    amountBase: normalizedBaseAmount,
+  });
+  return formatMoney(calculateQuotedAmount(previewOrder));
+}
+
+function setDisplayedAmountFromBaseAmount(
+  baseAmount,
+  {
+    feeMode = elements.feeMode?.value,
+    amountMode = state.mhsProjectAmountMode,
+    rawValue,
+  } = {},
+) {
+  if (!elements.amount) return;
+  elements.amount.value = formatDisplayedAmountFromBaseAmount(baseAmount, { feeMode, amountMode, rawValue });
+  elements.amount.dataset.valueKind = getAmountInputValueKindForMode(feeMode, amountMode);
+}
+
+function setMhsProjectAmountMode(nextMode) {
+  const normalizedMode = normalizeMhsProjectAmountMode(nextMode);
+  if (normalizedMode === state.mhsProjectAmountMode) return;
+
+  const currentRawAmount = elements.amount?.value ?? "";
+  const currentBaseAmount = parseBaseAmountFromDisplayedInput(currentRawAmount);
+  state.mhsProjectAmountMode = normalizedMode;
+  setDisplayedAmountFromBaseAmount(currentBaseAmount, { rawValue: currentRawAmount });
+  updateFeeModeUi();
+  syncUsageRateUi();
+  renderWorkHoursPreview();
+  refreshPendingTimelineDraftFromForm();
 }
 
 function getSourceLabel(source) {
@@ -7142,16 +7456,75 @@ function updateFeeModeUi() {
   const feeMode = normalizeFeeMode(elements.feeMode.value);
   const usageType = normalizeUsageType(elements.usageType?.value);
   const currency = normalizeCurrency(elements.currency?.value);
+  const amountMode = normalizeMhsProjectAmountMode(state.mhsProjectAmountMode);
+  const isMhsProject = feeMode === "mhs_project";
   const suffixParts = [];
-  if (usageType !== "私用") suffixParts.push("基价");
+  if (isMhsProject && amountMode === MHS_PROJECT_AMOUNT_MODE_CLIENT) {
+    if (usageType !== "私用") suffixParts.push("已含用途加价");
+  } else if (usageType !== "私用") {
+    suffixParts.push("基价");
+  }
   if (currency !== "CNY") suffixParts.push("原币");
   const suffix = suffixParts.length ? `（${suffixParts.join("，")}）` : "";
+  elements.mhsProjectAmountModeRow?.classList.toggle("is-hidden", !isMhsProject);
+  elements.mhsProjectAmountModeArtist?.classList.toggle(
+    "is-active",
+    amountMode === MHS_PROJECT_AMOUNT_MODE_ARTIST,
+  );
+  elements.mhsProjectAmountModeClient?.classList.toggle(
+    "is-active",
+    amountMode === MHS_PROJECT_AMOUNT_MODE_CLIENT,
+  );
   elements.amountLabel.textContent =
     feeMode === "mhs_project"
-      ? `到手稿费${suffix}`
+      ? amountMode === MHS_PROJECT_AMOUNT_MODE_CLIENT
+        ? `企划邀请总价${suffix}`
+        : `到手稿费${suffix}`
       : feeMode === "mhs_window"
         ? `橱窗标价${suffix}`
         : `总稿费${suffix}`;
+
+  if (!elements.amountNote) return;
+  if (!isMhsProject) {
+    elements.amountNote.textContent = "";
+    return;
+  }
+
+  const hasAmountInput = normalizeMoneyValue(elements.amount?.value) > 0;
+  if (!hasAmountInput) {
+    elements.amountNote.textContent =
+      amountMode === MHS_PROJECT_AMOUNT_MODE_CLIENT
+        ? "切到邀请总价后，这里直接填单主支付总价；保存时会自动反算画师到手，已收金额仍填画师实收。"
+        : "切到画师到手后，这里填画师侧金额；系统会自动反推出单主支付总价。";
+    return;
+  }
+
+  const previewOrder = buildPreviewOrderFromForm();
+  const quotedAmount = calculateQuotedAmount(previewOrder);
+  const quotedAmountCny = calculateQuotedAmountCny(previewOrder);
+  const grossAmount = calculateGrossAmount(previewOrder);
+  const grossAmountCny = calculateGrossAmountCny(previewOrder);
+  const feeAmount = calculateAdjustedFeeAmount(previewOrder);
+  const feeAmountCny = calculateAdjustedFeeAmountCny(previewOrder);
+  const quotedText = formatMoneyWithOriginal(quotedAmountCny, quotedAmount, currency);
+  const grossText = formatMoneyWithOriginal(grossAmountCny, grossAmount, currency);
+
+  elements.amountNote.textContent =
+    amountMode === MHS_PROJECT_AMOUNT_MODE_CLIENT
+      ? feeAmount > 0
+        ? `按当前抽成会自动反算：画师到手约 ${grossText}，平台加价 ${formatMoneyWithOriginal(
+            feeAmountCny,
+            feeAmount,
+            currency,
+          )}；已收金额仍填画师实收。`
+        : `按当前设置会自动反算：画师到手约 ${grossText}；已收金额仍填画师实收。`
+      : feeAmount > 0
+        ? `当前邀请总价约 ${quotedText}，其中平台加价 ${formatMoneyWithOriginal(
+            feeAmountCny,
+            feeAmount,
+            currency,
+          )}。`
+        : `当前邀请总价约 ${quotedText}。`;
 }
 
 function syncUsageRateUi({ previewOnly = false } = {}) {
@@ -7174,7 +7547,7 @@ function syncUsageRateUi({ previewOnly = false } = {}) {
   }
 
   const currency = normalizeCurrency(elements.currency?.value);
-  const amount = normalizeMoneyValue(elements.amount?.value);
+  const amount = parseBaseAmountFromDisplayedInput();
   const surcharge = roundMoney(amount * usageRate);
   const total = roundMoney(amount + surcharge);
   const previewOrder = normalizeOrder({
@@ -7208,27 +7581,7 @@ function renderWorkHoursPreview() {
     return;
   }
 
-  const previewSource = normalizeSourceValue(elements.source?.value) || SOURCES[0];
-  const previewFeeMode = elements.feeMode?.value || "standard";
-  const previewCurrency = normalizeCurrency(elements.currency?.value);
-  const fxEnabled = normalizeFxSettings(state.fxSettings).enabled;
-  const previewOrder = normalizeOrder({
-    source: previewSource,
-    feeMode: previewFeeMode,
-    currency: previewCurrency,
-    fxRateSnapshot:
-      fxEnabled && previewCurrency !== "CNY"
-        ? getConfiguredFxRate(previewCurrency)
-        : null,
-    amount: Number(elements.amount?.value || 0),
-    usageType: elements.usageType?.value || USAGE_TYPES[0],
-    usageRate: parseUsageRateInput(elements.usageRate?.value),
-    feeRate:
-      elements.feeRate?.value === ""
-        ? getDefaultFeeRate(previewSource, previewFeeMode)
-        : parseFeeRateInput(elements.feeRate?.value),
-    workHours,
-  });
+  const previewOrder = buildPreviewOrderFromForm({ workHours });
   const hourlyRate = calculateHourlyRate(previewOrder);
 
   if (hourlyRate == null) {
@@ -7268,10 +7621,10 @@ function normalizeOrder(input = {}) {
   const fxRateSnapshot = normalizeFxRateSnapshot(input.fxRateSnapshot, currency);
   const calendarColor = normalizeCalendarColor(input.calendarColor);
   const exceptionPreviousStatus = input.exceptionPreviousStatus || null;
-  const baseStatus = input.status || STATUSES[0];
+  const baseStatus = normalizeWorkflowStatus(input.status, STATUSES[0]);
   const status =
     exceptionType === "无" && baseStatus === "已处理"
-      ? exceptionPreviousStatus || "进行中"
+      ? normalizeWorkflowStatus(exceptionPreviousStatus, "进行中")
       : baseStatus;
 
   return {
@@ -7431,8 +7784,9 @@ function updateAuthUi(message) {
 }
 
 function setBusy(nextBusy) {
-  state.busy = nextBusy;
+  state.busy = Boolean(nextBusy);
   renderSyncPanel();
+  applyViewVisibility();
 }
 
 function hasTurnstileConfig() {
@@ -8524,12 +8878,6 @@ function persistLocalOrders(orders) {
   state.localBackupOrders = orders.map((item) => normalizeOrder(item));
 }
 
-function cleanupLegacyDemoData() {
-  try {
-    window.localStorage.removeItem("artist-commission-demo-undo-backup-v1");
-  } catch (_error) {}
-}
-
 function loadLayoutPrefs() {
   try {
     const raw = window.localStorage.getItem(UI_LAYOUT_PREFS_KEY);
@@ -8545,6 +8893,7 @@ function persistLayoutPrefs() {
     viewMode: state.viewMode,
     calendarDisplayMode: state.calendarDisplayMode,
     scheduleLayoutEditMode: state.scheduleLayoutEditMode,
+    panelOrder: state.panelOrder,
     commonSectionOrder: state.commonSectionOrder,
     scheduleSectionOrder: state.scheduleSectionOrder,
     insightsSectionOrder: state.insightsSectionOrder,
@@ -8554,6 +8903,7 @@ function persistLayoutPrefs() {
   state.viewMode = normalized.viewMode;
   state.calendarDisplayMode = normalized.calendarDisplayMode;
   state.scheduleLayoutEditMode = normalized.scheduleLayoutEditMode;
+  state.panelOrder = normalized.panelOrder;
   state.commonSectionOrder = normalized.commonSectionOrder;
   state.scheduleSectionOrder = normalized.scheduleSectionOrder;
   state.insightsSectionOrder = normalized.insightsSectionOrder;
@@ -8666,13 +9016,22 @@ function normalizeLayoutPrefs(input = {}) {
     ...(input.scheduleCollapsedPanels || {}),
     ...(typeof input.clientsCollapsed === "boolean" ? { clients: input.clientsCollapsed } : {}),
   };
+  const panelOrder = normalizePanelOrder(
+    input.panelOrder,
+    buildLegacyPanelOrder({
+      commonSectionOrder: input.commonSectionOrder,
+      scheduleSectionOrder: input.scheduleSectionOrder,
+      insightsSectionOrder: input.insightsSectionOrder,
+    }),
+  );
   return {
     viewMode: normalizeViewMode(input.viewMode, VIEW_MODE_SCHEDULE),
     calendarDisplayMode: normalizeCalendarDisplayMode(input.calendarDisplayMode, CALENDAR_DISPLAY_TAGS),
     scheduleLayoutEditMode: typeof input.scheduleLayoutEditMode === "boolean" ? input.scheduleLayoutEditMode : false,
-    commonSectionOrder: normalizeSectionOrder(input.commonSectionOrder, DEFAULT_COMMON_SECTION_ORDER),
-    scheduleSectionOrder: normalizeSectionOrder(input.scheduleSectionOrder, DEFAULT_SCHEDULE_SECTION_ORDER),
-    insightsSectionOrder: normalizeSectionOrder(input.insightsSectionOrder, DEFAULT_INSIGHTS_SECTION_ORDER),
+    panelOrder,
+    commonSectionOrder: panelOrder.filter((id) => getPanelGroup(id) === "common"),
+    scheduleSectionOrder: panelOrder.filter((id) => getPanelGroup(id) === "schedule"),
+    insightsSectionOrder: panelOrder.filter((id) => getPanelGroup(id) === "insights"),
     collapsedPanels: normalizeCollapsedPanels(input.collapsedPanels || legacyCollapsedPanels),
     updatedAt: normalizeIsoTimestamp(input.updatedAt),
   };
@@ -8690,6 +9049,37 @@ function normalizeSectionOrder(input, defaultOrder = []) {
   return unique;
 }
 
+function normalizePanelOrder(input, defaultOrder = DEFAULT_PANEL_ORDER) {
+  return normalizeSectionOrder(input, defaultOrder);
+}
+
+function buildLegacyPanelOrder(input = {}) {
+  const commonOrder = normalizeSectionOrder(input.commonSectionOrder, DEFAULT_COMMON_SECTION_ORDER);
+  const scheduleOrder = normalizeSectionOrder(input.scheduleSectionOrder, DEFAULT_SCHEDULE_SECTION_ORDER);
+  const insightsOrder = normalizeSectionOrder(input.insightsSectionOrder, DEFAULT_INSIGHTS_SECTION_ORDER);
+  const commonLength = commonOrder.length;
+  const orderMap = new Map();
+
+  commonOrder.forEach((id, index) => {
+    orderMap.set(id, index + 1);
+  });
+  scheduleOrder.forEach((id, index) => {
+    orderMap.set(id, commonLength + index + 1);
+  });
+  insightsOrder.forEach((id, index) => {
+    orderMap.set(id, commonLength + index + 1);
+  });
+
+  return [...LAYOUT_PANEL_IDS].sort((left, right) => {
+    const leftOrder = orderMap.get(left) ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = orderMap.get(right) ?? Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+    return LEGACY_PANEL_SOURCE_ORDER.indexOf(left) - LEGACY_PANEL_SOURCE_ORDER.indexOf(right);
+  });
+}
+
 function normalizeCollapsedPanels(input = {}) {
   const normalized = {};
   LAYOUT_PANEL_IDS.forEach((id) => {
@@ -8704,6 +9094,13 @@ function normalizeViewMode(value, fallback = VIEW_MODE_SCHEDULE) {
 
 function normalizeCalendarDisplayMode(value, fallback = CALENDAR_DISPLAY_TAGS) {
   return CALENDAR_DISPLAY_MODES.includes(value) ? value : fallback;
+}
+
+function normalizeWorkflowStatus(value, fallback = STATUSES[0]) {
+  const safeValue = String(value || "").trim();
+  if (!safeValue) return fallback;
+  if (safeValue === LEGACY_PAID_STATUS) return "已完成";
+  return STATUSES.includes(safeValue) ? safeValue : fallback;
 }
 
 function normalizeClientInsightSettings(input = {}) {
@@ -8802,6 +9199,12 @@ function normalizeIsoTimestamp(value) {
 function getSettingsTimestamp(value) {
   const parsed = Date.parse(String(value || ""));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function cleanupLegacyDemoBackup() {
+  try {
+    window.localStorage.removeItem("artist-commission-demo-undo-backup-v1");
+  } catch (_error) {}
 }
 
 function loadBackgroundTheme() {
