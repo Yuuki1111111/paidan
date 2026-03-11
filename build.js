@@ -15,10 +15,19 @@ for (const file of [
   "privacy.html",
   "styles.css",
   "app.js",
+  "runtime.js",
   "assets/afdian-poster.jpeg",
   "app/index.html",
   "assets/wechat-qr.jpg",
   "assets/alipay-qr.jpg",
+  "shared/cloud.js",
+  "shared/constants.js",
+  "shared/format.js",
+  "shared/orders.js",
+  "shared/storage.js",
+  "mobile/index.html",
+  "mobile/mobile.css",
+  "mobile/mobile.js",
 ]) {
   const target = join(dist, file);
   mkdirSync(dirname(target), { recursive: true });

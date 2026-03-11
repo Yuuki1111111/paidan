@@ -110,6 +110,9 @@ let authCooldownTicker = null;
 const state = {
   tab: "orders",
   orderScope: "today",
+  showSearch: false,
+  showFilters: false,
+  showAdvancedPrice: false,
   orderQuery: "",
   orderStatusFilter: "全部",
   orderSourceFilter: "全部",
@@ -176,13 +179,104 @@ const state = {
   settingsFeedbackTone: "",
 };
 
-const TAB_ICONS = {
-  orders: "◫",
-  calendar: "▦",
-  create: "＋",
-  stats: "◔",
-  settings: "⚙︎",
+// ── Lucide SVG icon system (ISC license) ──
+function icon(paths, size = 24) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+}
+const ICONS = {
+  // Tab bar
+  clipboardList: (s) => icon('<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>', s),
+  calendar: (s) => icon('<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>', s),
+  plusCircle: (s) => icon('<circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/>', s),
+  barChart3: (s) => icon('<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>', s),
+  settings: (s) => icon('<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>', s),
+  // Header actions
+  search: (s) => icon('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>', s),
+  slidersHorizontal: (s) => icon('<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>', s),
+  chevronLeft: (s) => icon('<path d="m15 18-6-6 6-6"/>', s),
+  chevronRight: (s) => icon('<path d="m9 18 6-6-6-6"/>', s),
+  chevronDown: (s) => icon('<path d="m6 9 6 6 6-6"/>', s),
+  chevronUp: (s) => icon('<path d="m18 15-6-6-6 6"/>', s),
+  plus: (s) => icon('<path d="M5 12h14"/><path d="M12 5v14"/>', s),
+  // Order card & create
+  alertTriangle: (s) => icon('<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>', s),
+  clock: (s) => icon('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>', s),
+  copy: (s) => icon('<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>', s),
+  fileText: (s) => icon('<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 13h4"/><path d="M10 17h4"/>', s),
+  penTool: (s) => icon('<path d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z"/><path d="m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18"/><path d="m2.3 2.3 7.286 7.286"/><circle cx="11" cy="11" r="2"/>', s),
+  banknote: (s) => icon('<rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>', s),
+  palette: (s) => icon('<circle cx="13.5" cy="6.5" r="0.5" fill="currentColor"/><circle cx="17.5" cy="10.5" r="0.5" fill="currentColor"/><circle cx="8.5" cy="7.5" r="0.5" fill="currentColor"/><circle cx="6.5" cy="12.5" r="0.5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>', s),
+  image: (s) => icon('<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>', s),
+  bookOpen: (s) => icon('<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>', s),
+  sparkles: (s) => icon('<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/>', s),
+  user: (s) => icon('<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>', s),
+  // Settings
+  cloud: (s) => icon('<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>', s),
+  smartphone: (s) => icon('<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>', s),
+  logIn: (s) => icon('<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" x2="3" y1="12" y2="12"/>', s),
+  logOut: (s) => icon('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>', s),
+  trash2: (s) => icon('<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>', s),
+  upload: (s) => icon('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>', s),
+  download: (s) => icon('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>', s),
+  messageCircle: (s) => icon('<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22z"/>', s),
+  shield: (s) => icon('<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>', s),
+  helpCircle: (s) => icon('<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>', s),
+  info: (s) => icon('<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>', s),
+  x: (s) => icon('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>', s),
+  check: (s) => icon('<path d="M20 6 9 17l-5-5"/>', s),
+  alertCircle: (s) => icon('<circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/>', s),
+  refresh: (s) => icon('<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>', s),
 };
+
+const TAB_ICONS = {
+  orders: ICONS.clipboardList(22),
+  calendar: ICONS.calendar(22),
+  create: ICONS.plus(24),
+  stats: ICONS.barChart3(22),
+  settings: ICONS.settings(22),
+};
+
+// ── Business type styles (color + icon for order cards) ──
+const BUSINESS_TYPE_STYLES = {
+  '立绘': { color: '#8B5CF6', iconFn: ICONS.palette },
+  '头像': { color: '#3B82F6', iconFn: ICONS.user },
+  '插画': { color: '#E8734A', iconFn: ICONS.image },
+  '漫画': { color: '#EC4899', iconFn: ICONS.bookOpen },
+  '表情包': { color: '#F59E0B', iconFn: ICONS.sparkles },
+};
+const DEFAULT_BUSINESS_STYLE = { color: '#78716C', iconFn: ICONS.penTool };
+
+function getBusinessTypeStyle(type) {
+  if (!type) return DEFAULT_BUSINESS_STYLE;
+  for (const [key, style] of Object.entries(BUSINESS_TYPE_STYLES)) {
+    if (type.includes(key)) return style;
+  }
+  return DEFAULT_BUSINESS_STYLE;
+}
+
+// ── Urgency & payment helpers ──
+function getDaysUntilDeadline(order) {
+  if (!order.dueDate) return Infinity;
+  const due = new Date(order.dueDate);
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  due.setHours(0, 0, 0, 0);
+  return Math.ceil((due - now) / (1000 * 60 * 60 * 24));
+}
+
+function getUrgencyLevel(order) {
+  if (isClosed(order)) return null;
+  const days = getDaysUntilDeadline(order);
+  if (days < 0) return 'overdue';
+  if (days <= 2) return 'urgent';
+  return null;
+}
+
+function getPaymentProgressPercent(order) {
+  const gross = normalizeMoneyValue(order.amount);
+  const received = normalizeMoneyValue(order.receivedAmount);
+  return gross > 0 ? Math.min((received / gross) * 100, 100) : 0;
+}
 
 if (initialAuthFlowType) {
   savePreferredStorageMode("cloud", APP_RUNTIME);
@@ -1010,56 +1104,35 @@ function renderMobileTurnstilePanel() {
 }
 
 function renderHeader() {
+  // Create tab uses a separate sticky header rendered in renderCreateTab()
+  if (state.tab === "create") return "";
+
   const meta = {
     orders: {
-      eyebrow: "Orders",
       title: "订单",
-      subtitle: "把移动端先做成独立工作区，网页端继续保留原布局。",
       actions: `
-        <button class="mobile-icon-button" type="button" data-action="refresh" aria-label="刷新数据">↻</button>
-        <button class="mobile-icon-button" type="button" data-action="jump-create" aria-label="新建稿件">＋</button>
+        <button class="mobile-icon-button" type="button" data-action="refresh" aria-label="刷新数据">${ICONS.refresh(16)}</button>
+        <button class="mobile-icon-button${state.showSearch ? " is-active" : ""}" type="button" data-action="toggle-search" aria-label="搜索">${ICONS.search(16)}</button>
+        <button class="mobile-icon-button${state.showFilters ? " is-active" : ""}" type="button" data-action="toggle-filters" aria-label="筛选">${ICONS.slidersHorizontal(16)}</button>
       `,
     },
     calendar: {
-      eyebrow: "Calendar",
       title: "月历",
-      subtitle: "标签月历和周分组条状排期共用一套数据，移动端优先保证排期可读性。",
-      actions: `
-        <button class="mobile-icon-button" type="button" data-action="month-prev" aria-label="上个月">‹</button>
-        <button class="mobile-icon-button" type="button" data-action="month-next" aria-label="下个月">›</button>
-      `,
-    },
-    create: {
-      eyebrow: "Create",
-      title: "新建",
-      subtitle: "录单结构按 Figma 定稿保留，业务细节继续复用网页端真实字段和模板语义。",
-      actions: `
-        <button class="mobile-pill-button" type="button" disabled>保存稿件</button>
-      `,
+      actions: "",
     },
     stats: {
-      eyebrow: "Stats",
       title: "统计",
-      subtitle: "先把结果页跑通，后续再叠更细的趋势和客户分析。",
-      actions: `
-        <button class="mobile-icon-button" type="button" data-action="refresh" aria-label="刷新数据">↻</button>
-      `,
+      actions: "",
     },
     settings: {
-      eyebrow: "Settings",
       title: "设置",
-      subtitle: "同步、导入导出和支持全部收进设置，不回主工作区。",
       actions: "",
     },
   }[state.tab];
 
   return `
     <header class="mobile-header">
-      <div class="mobile-title-wrap">
-        <p class="mobile-eyebrow">${meta.eyebrow}</p>
-        <h1 class="mobile-title">${meta.title}</h1>
-        <p class="mobile-subtitle">${meta.subtitle}</p>
-      </div>
+      <h1 class="mobile-title">${meta.title}</h1>
       <div class="mobile-header-actions">${meta.actions}</div>
     </header>
   `;
@@ -1084,88 +1157,140 @@ function renderOrdersTab() {
   const allVisibleSelected = visibleOrders.length > 0 && selectedVisibleIds.length === visibleOrders.length;
   const hasAbnormalSelection = selectedVisibleOrders.some(isAbnormal);
   const hasNormalSelection = selectedVisibleOrders.some((order) => !isAbnormal(order));
-  const activeOrders = state.orders.filter((order) => !isClosed(order));
-  const thisWeekDue = activeOrders.filter((order) => isDateInThisWeek(order.dueDate)).length;
-  const pendingAmount = activeOrders.reduce((total, order) => {
+  const urgentCount = scopedOrders.filter((order) => getDaysUntilDeadline(order) <= 3 && getDaysUntilDeadline(order) >= 0).length;
+  const overdueCount = scopedOrders.filter((order) => getDaysUntilDeadline(order) < 0).length;
+  const pendingAmount = scopedOrders.reduce((total, order) => {
     const gross = calculateAdjustedNetAmountCny(order, state.fxSettings);
     const received = calculateEffectiveReceivedCny(order, state.fxSettings);
     return total + Math.max(gross - received, 0);
   }, 0);
+  const totalAmount = scopedOrders.reduce((total, order) => total + calculateAdjustedNetAmountCny(order, state.fxSettings), 0);
+
+  const scopeLabels = { today: "今日进行", week: "本周到期", all: "全部稿件" };
+  const scopeLabel = scopeLabels[state.orderScope] || "全部稿件";
 
   return `
-    <section class="mobile-card">
+    ${state.showSearch ? `
+      <div class="mobile-search-bar">
+        <div class="mobile-search-bar-inner">
+          ${ICONS.search(15)}
+          <input
+            type="search"
+            class="mobile-search-input"
+            placeholder="搜索项目名、客户名..."
+            data-order-query
+            value="${escapeAttribute(state.orderQuery)}"
+            autofocus
+          />
+          ${state.orderQuery ? `<button type="button" class="mobile-search-clear" data-action="clear-search">清除</button>` : ""}
+        </div>
+      </div>
+    ` : ""}
+
+    <div class="mobile-orders-segmented">
       <div class="mobile-segmented">
         ${renderScopeButton("today", "今天")}
         ${renderScopeButton("week", "本周")}
         ${renderScopeButton("all", "全部")}
       </div>
-    </section>
-    <section class="mobile-card">
-      <div class="mobile-summary-grid">
-        <article class="mobile-summary-item">
-          <span class="mobile-summary-label">待处理</span>
-          <strong class="mobile-summary-value is-accent">${scopedOrders.length}</strong>
-        </article>
-        <article class="mobile-summary-item">
-          <span class="mobile-summary-label">本周到期</span>
-          <strong class="mobile-summary-value">${thisWeekDue}</strong>
-        </article>
-        <article class="mobile-summary-item">
-          <span class="mobile-summary-label">待收金额</span>
-          <strong class="mobile-summary-value is-green">${formatCompactAmount(pendingAmount)}</strong>
-        </article>
+    </div>
+
+    <div class="mobile-summary-strip">
+      <div class="mobile-summary-strip-item" style="--strip-color:#E8734A">
+        <span class="mobile-summary-label">进行中</span>
+        <strong class="mobile-summary-value" style="color:#E8734A">${scopedOrders.length}</strong>
+        <span class="mobile-summary-hint">稿件</span>
       </div>
-    </section>
-    <section class="mobile-card">
-      <div class="mobile-orders-filter-grid">
-        <label class="mobile-orders-search">
-          <span class="mobile-form-label">搜索</span>
-          <input
-            class="mobile-form-input"
-            type="search"
-            placeholder="项目名 / 客户 / 备注"
-            data-order-query
-            value="${escapeAttribute(state.orderQuery)}"
-          />
-        </label>
-        <label class="mobile-orders-filter">
-          <span class="mobile-form-label">状态</span>
-          <span class="mobile-form-select-wrap">
-            <select class="mobile-form-select" data-order-status-filter>
-              ${renderOrdersFilterOptions(["全部", ...STATUSES], state.orderStatusFilter)}
-            </select>
-          </span>
-        </label>
-        <label class="mobile-orders-filter">
-          <span class="mobile-form-label">来源</span>
-          <span class="mobile-form-select-wrap">
-            <select class="mobile-form-select" data-order-source-filter>
-              ${renderOrdersFilterOptions(["全部", ...SOURCES], state.orderSourceFilter, getSourceLabel)}
-            </select>
-          </span>
-        </label>
-        <label class="mobile-orders-filter">
-          <span class="mobile-form-label">业务</span>
-          <span class="mobile-form-select-wrap">
-            <select class="mobile-form-select" data-order-business-filter>
-              ${renderOrdersFilterOptions(["全部", ...getAllBusinessTypes()], state.orderBusinessFilter)}
-            </select>
-          </span>
-        </label>
-        <label class="mobile-orders-filter">
-          <span class="mobile-form-label">排序</span>
-          <span class="mobile-form-select-wrap">
-            <select class="mobile-form-select" data-order-sort-by>
-              <option value="due"${state.orderSortBy === "due" ? " selected" : ""}>截稿日期</option>
-              <option value="amount"${state.orderSortBy === "amount" ? " selected" : ""}>金额</option>
-              <option value="created"${state.orderSortBy === "created" ? " selected" : ""}>动工日期</option>
-              <option value="client"${state.orderSortBy === "client" ? " selected" : ""}>客户名</option>
-            </select>
-          </span>
-        </label>
+      <div class="mobile-summary-strip-item" style="--strip-color:${urgentCount + overdueCount > 0 ? '#EF4444' : '#F59E0B'}">
+        <span class="mobile-summary-label">紧急</span>
+        <strong class="mobile-summary-value" style="color:${urgentCount + overdueCount > 0 ? '#EF4444' : '#F59E0B'}">${urgentCount + overdueCount}</strong>
+        <span class="mobile-summary-hint">≤ 3天</span>
       </div>
-    </section>
-    <section class="mobile-card">
+      <div class="mobile-summary-strip-item" style="--strip-color:#3B82F6">
+        <span class="mobile-summary-label">待收款</span>
+        <strong class="mobile-summary-value" style="color:#3B82F6">${formatCompactAmount(pendingAmount)}</strong>
+        <span class="mobile-summary-hint">/${formatCompactAmount(totalAmount)}</span>
+      </div>
+    </div>
+
+    ${state.showFilters ? `
+      <section class="mobile-filter-panel">
+        <div class="mobile-filter-grid">
+          <label class="mobile-filter-item">
+            <span class="mobile-filter-label">状态</span>
+            <span class="mobile-form-select-wrap">
+              <select class="mobile-form-select" data-order-status-filter>
+                ${renderOrdersFilterOptions(["全部", ...STATUSES], state.orderStatusFilter)}
+              </select>
+            </span>
+          </label>
+          <label class="mobile-filter-item">
+            <span class="mobile-filter-label">来源</span>
+            <span class="mobile-form-select-wrap">
+              <select class="mobile-form-select" data-order-source-filter>
+                ${renderOrdersFilterOptions(["全部", ...SOURCES], state.orderSourceFilter, getSourceLabel)}
+              </select>
+            </span>
+          </label>
+          <label class="mobile-filter-item">
+            <span class="mobile-filter-label">业务</span>
+            <span class="mobile-form-select-wrap">
+              <select class="mobile-form-select" data-order-business-filter>
+                ${renderOrdersFilterOptions(["全部", ...getAllBusinessTypes()], state.orderBusinessFilter)}
+              </select>
+            </span>
+          </label>
+          <label class="mobile-filter-item">
+            <span class="mobile-filter-label">排序</span>
+            <span class="mobile-form-select-wrap">
+              <select class="mobile-form-select" data-order-sort-by>
+                <option value="due"${state.orderSortBy === "due" ? " selected" : ""}>截稿日期</option>
+                <option value="amount"${state.orderSortBy === "amount" ? " selected" : ""}>金额</option>
+                <option value="created"${state.orderSortBy === "created" ? " selected" : ""}>动工日期</option>
+                <option value="client"${state.orderSortBy === "client" ? " selected" : ""}>客户名</option>
+              </select>
+            </span>
+          </label>
+        </div>
+      </section>
+    ` : ""}
+
+    <div class="mobile-orders-section-label">
+      <span>${scopeLabel} · ${scopedOrders.length}</span>
+      <span class="mobile-orders-sort-hint">按${state.orderSortBy === "due" ? "截稿日" : state.orderSortBy === "amount" ? "金额" : state.orderSortBy === "created" ? "动工日" : "客户名"}排序</span>
+    </div>
+
+    <div class="mobile-orders-list">
+      ${
+        scopedOrders.length
+          ? scopedOrders.map(renderOrderCard).join("")
+          : `<div class="mobile-orders-empty">
+              <div class="mobile-orders-empty-icon">${ICONS.palette(22)}</div>
+              <div class="mobile-orders-empty-title">暂无稿件</div>
+              <div class="mobile-orders-empty-hint">${state.orderQuery ? "试试换个关键词" : "新建一个稿件开始排期吧"}</div>
+            </div>`
+      }
+    </div>
+
+    ${abnormalOrders.length ? `
+      <div class="mobile-orders-section-label">
+        <span>异常单 · ${abnormalOrders.length}</span>
+      </div>
+      <div class="mobile-orders-list">
+        ${abnormalOrders.map((order) => renderOrderCard(order, { tone: "warning" })).join("")}
+      </div>
+    ` : ""}
+
+    ${archivedOrders.length ? `
+      <div class="mobile-orders-section-label">
+        <span>最近归档 · ${archivedOrders.length}</span>
+      </div>
+      <div class="mobile-orders-list">
+        ${archivedOrders.map((order) => renderOrderCard(order, { tone: "muted" })).join("")}
+      </div>
+    ` : ""}
+
+    <section class="mobile-card mobile-batch-section">
       <div class="mobile-row-between">
         <div>
           <h2 class="mobile-section-title">批量操作</h2>
@@ -1213,42 +1338,6 @@ function renderOrdersTab() {
           : `<div class="mobile-empty">还没选中稿件。可以先选一单，再用这里做单条或批量处理。</div>`
       }
     </section>
-    <section class="mobile-card">
-      <h2 class="mobile-section-title">正在处理的稿件</h2>
-      <div class="mobile-list">
-        ${
-          scopedOrders.length
-            ? scopedOrders.map(renderOrderCard).join("")
-            : `<div class="mobile-empty">当前条件下没有符合的稿件。</div>`
-        }
-      </div>
-    </section>
-    <section class="mobile-card">
-      <div class="mobile-row-between">
-        <h2 class="mobile-section-title">异常单</h2>
-        <span class="mobile-muted">${abnormalOrders.length} 条</span>
-      </div>
-      <div class="mobile-list">
-        ${
-          abnormalOrders.length
-            ? abnormalOrders.map((order) => renderOrderCard(order, { tone: "warning" })).join("")
-            : `<div class="mobile-empty">当前筛选下没有异常单。</div>`
-        }
-      </div>
-    </section>
-    <section class="mobile-card">
-      <div class="mobile-row-between">
-        <h2 class="mobile-section-title">最近归档</h2>
-        <span class="mobile-muted">${archivedOrders.length} 条</span>
-      </div>
-      <div class="mobile-list">
-        ${
-          archivedOrders.length
-            ? archivedOrders.map((order) => renderOrderCard(order, { tone: "muted" })).join("")
-            : `<div class="mobile-empty">最近还没有已完成或已处理的稿件。</div>`
-        }
-      </div>
-    </section>
   `;
 }
 
@@ -1263,25 +1352,26 @@ function renderCalendarTab() {
     .slice(0, 4);
 
   return `
-    <section class="mobile-card">
-      <div class="mobile-row-between">
-        <h2 class="mobile-section-title">${monthLabel}</h2>
-        <span class="mobile-muted">${monthDue.length} 条近期排期</span>
-      </div>
-      <div class="mobile-segmented mobile-calendar-segmented">
-        <button type="button" data-calendar-mode="${CALENDAR_MODE_TAGS}" class="${state.calendarMode === CALENDAR_MODE_TAGS ? "is-active" : ""}">标签月历</button>
-        <button type="button" data-calendar-mode="${CALENDAR_MODE_TIMELINE}" class="${state.calendarMode === CALENDAR_MODE_TIMELINE ? "is-active" : ""}">条状排期</button>
-      </div>
-    </section>
+    <div class="mobile-month-switcher">
+      <button class="mobile-month-nav" type="button" data-action="month-prev">${ICONS.chevronLeft(18)}</button>
+      <span class="mobile-month-label">${monthLabel}</span>
+      <button class="mobile-month-nav" type="button" data-action="month-next">${ICONS.chevronRight(18)}</button>
+    </div>
+    <div class="mobile-segmented" style="margin-bottom:12px">
+      <button type="button" data-calendar-mode="${CALENDAR_MODE_TAGS}" class="${state.calendarMode === CALENDAR_MODE_TAGS ? "is-active" : ""}">标签月历</button>
+      <button type="button" data-calendar-mode="${CALENDAR_MODE_TIMELINE}" class="${state.calendarMode === CALENDAR_MODE_TIMELINE ? "is-active" : ""}">条状排期</button>
+    </div>
     ${
       state.calendarMode === CALENDAR_MODE_TAGS
         ? renderCalendarTagsView(range, selectedDate)
         : renderCalendarTimelineView(range)
     }
-    <section class="mobile-card">
-      <div class="mobile-row-between">
-        <h2 class="mobile-section-title">${formatCalendarDialogDate(selectedDate)} · ${selectedEntries.length} 项</h2>
-        <button class="mobile-primary-inline" type="button" data-action="jump-create">新建稿件</button>
+    <section class="mobile-card" style="margin-top:12px">
+      <div class="mobile-row-between" style="margin-bottom:8px">
+        <h2 class="mobile-section-title" style="margin:0">${formatCalendarDialogDate(selectedDate)} · ${selectedEntries.length} 项</h2>
+        <button class="mobile-primary-inline" type="button" data-action="jump-create" style="display:flex;align-items:center;gap:4px">
+          ${ICONS.plus(13)} 新建到此日
+        </button>
       </div>
       <div class="mobile-chip-row mobile-calendar-mark-bar">
         <button class="mobile-chip${getCalendarDayMarkType(selectedDate) === CALENDAR_DAY_MARK_REST ? " is-active" : ""}" type="button" data-calendar-mark-rest="${escapeAttribute(selectedDate)}"${state.calendarDayMarksBusy ? " disabled" : ""}>标为休息日</button>
@@ -1292,7 +1382,7 @@ function renderCalendarTab() {
         ${
           selectedEntries.length
             ? selectedEntries.map(renderCalendarEntryCard).join("")
-            : `<div class="mobile-empty">这一天还没有稿件。月历页内的新建入口后续会保留日期上下文语义。</div>`
+            : `<div class="mobile-empty">当日无截稿排期</div>`
         }
       </div>
     </section>
@@ -1301,6 +1391,20 @@ function renderCalendarTab() {
 
 function renderCalendarTagsView(range, selectedDate) {
   const weekdayLabels = ["日", "一", "二", "三", "四", "五", "六"];
+  // Collect unique source colors for the legend
+  const legendSources = [];
+  const seenColors = new Set();
+  state.orders.forEach((order) => {
+    if (isSameMonth(order.dueDate || order.completedDate, state.month)) {
+      const color = getOrderCalendarColor(order);
+      const label = getSourceLabel(order.source);
+      if (!seenColors.has(color)) {
+        seenColors.add(color);
+        legendSources.push({ color, label });
+      }
+    }
+  });
+
   return `
     <section class="mobile-card">
       <div class="mobile-calendar-weekday-row">
@@ -1316,7 +1420,7 @@ function renderCalendarTagsView(range, selectedDate) {
             const markType = getCalendarDayMarkType(dateKey);
             const markLabel = markType === CALENDAR_DAY_MARK_REST ? "休" : markType === CALENDAR_DAY_MARK_WORK ? "班" : "";
             const dots = getCalendarEntriesForDate(dateKey)
-              .slice(0, 4)
+              .slice(0, 3)
               .map((entry) => `<span class="mobile-calendar-dot" style="background:${getOrderCalendarColor(entry.order)}"></span>`)
               .join("");
             return `
@@ -1331,6 +1435,16 @@ function renderCalendarTagsView(range, selectedDate) {
           .join("")}
       </div>
     </section>
+    ${legendSources.length ? `
+      <div class="mobile-calendar-legend">
+        ${legendSources.map((s) => `
+          <span class="mobile-calendar-legend-item">
+            <span class="mobile-calendar-legend-dot" style="background:${s.color}"></span>
+            ${escapeHtml(s.label)}
+          </span>
+        `).join("")}
+      </div>
+    ` : ""}
   `;
 }
 
@@ -1405,8 +1519,6 @@ function renderCreateTab() {
   const draft = state.createDraft;
   const sourceLabel = getSourceLabel(draft.source);
   const sourceColor = getSourceColor(draft.source);
-  const feeRatePercent = formatRatePercent(draft.feeRate);
-  const usageRatePercent = formatRatePercent(draft.usageRate);
   const feeSummary = buildFeeSummary(draft);
   const recentBusinessTypes = getRecentBusinessTypes();
   const editingOrder = state.editingOrderId ? state.orders.find((order) => order.id === state.editingOrderId) : null;
@@ -1415,183 +1527,225 @@ function renderCreateTab() {
     .filter((value, index, array) => array.indexOf(value) === index)
     .slice(0, 5);
   const repeatReady = Boolean(getRepeatSource());
+  const typeStyle = getBusinessTypeStyle(draft.businessType);
+
+  // Payment progress for hero card
+  const grossAmount = normalizeMoneyValue(draft.amount);
+  const receivedAmount = normalizeMoneyValue(draft.receivedAmount);
+  const paymentPct = grossAmount > 0 ? Math.min(100, (receivedAmount / grossAmount) * 100) : 0;
+  const remaining = grossAmount - receivedAmount;
+  const paymentColor = remaining <= 0 && grossAmount > 0 ? "#10B981" : receivedAmount > 0 ? "#F59E0B" : "#EF4444";
 
   return `
-    <section class="mobile-card">
-      <div class="mobile-form-toolbar">
-        <button class="mobile-chip" type="button" data-action="repeat-last"${repeatReady ? "" : " disabled"}>复制上单</button>
-        <button class="mobile-chip" type="button" data-action="open-template-sheet">业务模板</button>
-        <button class="mobile-chip" type="button" data-action="open-business-sheet">管理业务</button>
-        ${editingOrder ? `<button class="mobile-chip is-danger" type="button" data-action="cancel-edit-order">取消编辑</button>` : ""}
+    <div class="mobile-create-header">
+      <div class="mobile-create-header-inner">
+        ${editingOrder
+          ? `<button class="mobile-create-cancel" type="button" data-action="cancel-edit-order">取消</button>`
+          : `<button class="mobile-create-cancel" type="button" data-tab="orders">取消</button>`
+        }
+        <span class="mobile-create-header-title">${editingOrder ? "编辑稿件" : "新建稿件"}</span>
+        <button class="mobile-create-save-top" type="button" data-action="save-create-order">${editingOrder ? "保存" : "保存"}</button>
       </div>
-      <p class="mobile-form-caption">模板、管理业务和复制上单保留独立入口；二级 sheet 和网页端使用同一套本地存储 key。</p>
-    </section>
+    </div>
+
+    <div class="mobile-create-ribbon">
+      <button class="mobile-ribbon-btn" type="button" data-action="repeat-last"${repeatReady ? "" : " disabled"}>
+        ${ICONS.copy(14)} <span>复制上单</span>
+      </button>
+      <button class="mobile-ribbon-btn" type="button" data-action="open-template-sheet">
+        ${ICONS.fileText(14)} <span>业务模板</span>
+      </button>
+      <button class="mobile-ribbon-btn" type="button" data-action="open-business-sheet">
+        ${ICONS.slidersHorizontal(14)} <span>管理业务</span>
+      </button>
+    </div>
+
     ${
       state.createFeedbackMessage
-        ? `
-          <section class="mobile-card">
-            <div class="mobile-feedback-banner${state.createFeedbackTone === "error" ? " is-error" : " is-success"}">
-              ${escapeHtml(state.createFeedbackMessage)}
-            </div>
-          </section>
-        `
+        ? `<div class="mobile-create-banner"><div class="mobile-feedback-banner${state.createFeedbackTone === "error" ? " is-error" : " is-success"}">${escapeHtml(state.createFeedbackMessage)}</div></div>`
         : ""
     }
     ${
       state.createContextNote
-        ? `
-          <section class="mobile-card">
-            <div class="mobile-sheet-banner">
-              ${escapeHtml(state.createContextNote)}
-            </div>
-          </section>
-        `
+        ? `<div class="mobile-create-context">${ICONS.calendar(15)} <div><span class="mobile-create-context-title">从月历创建</span><span class="mobile-create-context-hint">${escapeHtml(state.createContextNote)}</span></div></div>`
         : ""
     }
-    <section class="mobile-card">
-      <div class="mobile-create-hero">
-        <div class="mobile-create-hero-main">
-          <p class="mobile-create-kicker">${editingOrder ? "编辑稿件" : "项目名称"}</p>
-          <h2 class="mobile-create-title">${escapeHtml(draft.projectName || "给稿件起个名字，例如：角色立绘")}</h2>
-          <p class="mobile-create-subtitle">
-            来源：<span style="color:${sourceColor}">${escapeHtml(sourceLabel)}</span>${editingOrder ? "，保存后会覆盖当前稿件。" : "，保存后会写入本地排期与统计。"}
-          </p>
+
+    <div class="mobile-create-hero-card">
+      <div class="mobile-create-hero-top">
+        <div class="mobile-order-type-icon" style="background:${typeStyle.color}12">${typeStyle.iconFn(16, typeStyle.color)}</div>
+        <div class="mobile-create-hero-label">
+          <span class="mobile-create-hero-kicker">${editingOrder ? "编辑稿件" : "项目名称"}</span>
         </div>
-        <span class="mobile-badge is-accent">${escapeHtml(draft.priority)}</span>
+        <span class="mobile-create-hero-type" style="background:#F5F2EE;color:var(--mobile-muted-light)">${escapeHtml(draft.businessType || "其他")}</span>
       </div>
-    </section>
-    <section class="mobile-group mobile-form-group">
-      <h3>基础信息</h3>
-      ${renderEditableInputRow("项目名", "projectName", draft.projectName, "角色立绘 · 精3", {
-        hint: "给稿件起个名字，后续列表和条状排期都用它。",
-      })}
-      ${renderEditableInputRow("客户 / 老板 ID", "clientName", draft.clientName, "甲方 / 米画师 / lofter", {
-        hint: "老板名保留单独输入，不会被模板强行覆盖。",
-      })}
-      ${renderReadonlyFormRow("业务分类", draft.businessType, "支持内置业务与自定义业务分类。")}
-      <div class="mobile-form-block">
-        <span class="mobile-form-label">常用业务</span>
-        <div class="mobile-chip-row">
-          ${renderChipItems(recentBusinessTypes, draft.businessType)}
-        </div>
-        <span class="mobile-form-hint">最近业务、自定义业务和模板业务会一起出现在这里。</span>
-      </div>
-      ${renderEditableSelectRow(
-        "来源",
-        "source",
-        draft.source,
-        SOURCE_OPTIONS.map((item) => ({ value: item.value, label: item.label })),
-        "来源会联动默认手续费和部分金额口径。",
-      )}
-    </section>
-    <section class="mobile-group mobile-form-group">
-      <h3>价格与结算</h3>
-      ${renderEditableNumberRow("总稿费", "amount", draft.amount, "0.00", {
-        hint: "显式支持 0 金额，用于无偿稿、作业稿和练习单。",
-        prefix: "¥",
-      })}
-      ${renderEditableNumberRow("已收金额", "receivedAmount", draft.receivedAmount, "0.00", {
-        hint: "已收金额允许 0，和网页端保持一致。",
-        prefix: "¥",
-      })}
-      ${renderEditableSelectRow(
-        "收款状态",
-        "paymentStatus",
-        normalizePaymentStatus(draft),
-        PAYMENT_STATUSES.map((value) => ({ value, label: value })),
-      )}
-      <div class="mobile-detail-card">
-        <div class="mobile-row-between">
-          <div>
-            <span class="mobile-form-label">结算明细</span>
-            <span class="mobile-form-hint">先放进本页，后续可拆成独立 sheet。</span>
+      <input class="mobile-create-hero-input" type="text" placeholder="给稿件起个名字，例如：角色立绘 · 精灵法师" value="${escapeAttribute(draft.projectName)}" data-create-input="projectName" />
+      ${draft.projectName ? `
+        <div class="mobile-create-hero-progress">
+          <div class="mobile-create-hero-bar" style="background:${draft.calendarColor || typeStyle.color}20">
+            <div class="mobile-create-hero-bar-fill" style="width:${paymentPct}%;background:${draft.calendarColor || typeStyle.color}"></div>
           </div>
-          <span class="mobile-badge">${feeSummary}</span>
+          <span class="mobile-create-hero-stage">${escapeHtml(draft.productionStage || BUILT_IN_PRODUCTION_STAGES[0])}</span>
         </div>
-        ${renderEditableSelectRow(
-          "手续费方式",
-          "feeMode",
-          draft.feeMode,
-          FEE_MODES.map((item) => ({ value: item.value, label: item.label })),
-        )}
-        ${renderEditableNumberRow("来源默认抽成", "feeRate", draft.feeRate * 100, "0", {
-          hint: `当前来源 ${escapeHtml(sourceLabel)} 默认按 ${feeSummary} 处理。`,
-          suffix: "%",
-          kind: "percent",
-        })}
-        ${renderEditableSelectRow(
-          "紧急程度",
-          "priority",
-          draft.priority,
-          PRIORITIES.map((value) => ({ value, label: value })),
-        )}
-        ${renderEditableSelectRow(
-          "用途类型",
-          "usageType",
-          draft.usageType,
-          USAGE_TYPES.map((value) => ({ value, label: value })),
-        )}
-        ${renderEditableNumberRow("用途加价", "usageRate", draft.usageRate * 100, "0", {
-          suffix: "%",
-          kind: "percent",
-        })}
-        ${renderEditableSelectRow(
-          "币种",
-          "currency",
-          draft.currency,
-          CURRENCY_OPTIONS.map((item) => ({ value: item.value, label: item.value })),
-        )}
-        ${
-          draft.source === "米画师企划邀请"
-            ? renderReadonlyFormRow("企划金额口径", "按画师到手", "企划邀请保留手 / 总价切换，和网页端一致。")
-            : ""
-        }
-      </div>
-    </section>
-    <section class="mobile-group mobile-form-group">
-      <h3>时间与排期</h3>
-      ${renderEditableDateRow("动工日期", "startDate", draft.startDate || formatDateInput(new Date()))}
-      ${renderEditableDateRow("截稿日期", "dueDate", draft.dueDate)}
-      ${renderEditableDateRow("完成日期", "completedDate", draft.completedDate)}
-      ${renderEditableNumberRow("预计工时", "workHours", draft.workHours, "0", {
-        suffix: "小时",
-        kind: "hours",
-      })}
-      <div class="mobile-form-block">
-        <span class="mobile-form-label">排期条颜色</span>
-        <div class="mobile-color-row">
-          ${renderColorChoices(draft.calendarColor)}
-        </div>
-        <span class="mobile-form-hint">留空时自动跟随来源色；这里只做结构示意，后续接真实选择器。</span>
-      </div>
-    </section>
-    <section class="mobile-group mobile-form-group">
-      <h3>进度与异常</h3>
-      ${renderEditableSelectRow("订单状态", "status", draft.status, STATUSES.map((value) => ({ value, label: value })))}
-      <div class="mobile-form-block">
-        <span class="mobile-form-label">制作阶段</span>
-        <div class="mobile-stage-track">
-          ${renderStageItems(stageOptions, draft.productionStage || BUILT_IN_PRODUCTION_STAGES[0])}
+      ` : ""}
+    </div>
+
+    <div class="mobile-create-sections">
+      <div class="mobile-create-section">
+        <div class="mobile-create-section-label">${ICONS.user(12)} <span>基础信息</span></div>
+        <div class="mobile-create-section-card">
+          ${renderEditableInputRow("客户", "clientName", draft.clientName, "名称或昵称", {
+            hint: "甲方 / 委托人",
+          })}
+          ${renderReadonlyFormRow("业务分类", draft.businessType, "")}
+          <div class="mobile-form-block">
+            <span class="mobile-form-label">常用业务</span>
+            <div class="mobile-chip-row">
+              ${renderChipItems(recentBusinessTypes, draft.businessType)}
+            </div>
+          </div>
+          ${renderEditableSelectRow(
+            "来源",
+            "source",
+            draft.source,
+            SOURCE_OPTIONS.map((item) => ({ value: item.value, label: item.label })),
+          )}
         </div>
       </div>
-      ${renderEditableSelectRow(
-        "异常类型",
-        "exceptionType",
-        draft.exceptionType,
-        EXCEPTION_TYPES.map((value) => ({ value, label: value })),
-      )}
-      ${renderEditableTextareaBlock("备注", "notes", draft.notes, "画面要求、分辨率、文件格式、特殊说明……")}
-    </section>
-    <section class="mobile-card mobile-create-footer">
-      <div class="mobile-row-between">
-        <div>
-          <p class="mobile-create-kicker">保存后结果预览</p>
-          <strong class="mobile-create-net">${formatCompactAmount(calculateAdjustedNetAmountCny(draft, state.fxSettings))}</strong>
-          <p class="mobile-form-hint">按当前结算规则估算实得，保存后会写入本地排期和统计。</p>
+
+      <div class="mobile-create-section">
+        <div class="mobile-create-section-label">${ICONS.banknote(12)} <span>价格与结算</span></div>
+        <div class="mobile-create-section-card">
+          ${renderEditableNumberRow("总稿费", "amount", draft.amount, "0.00", {
+            prefix: "¥",
+          })}
+          ${renderEditableNumberRow("已收金额", "receivedAmount", draft.receivedAmount, "0.00", {
+            prefix: "¥",
+          })}
+          ${grossAmount > 0 ? `
+            <div class="mobile-create-payment-progress">
+              <div class="mobile-row-between">
+                <span class="mobile-form-hint">收款进度</span>
+                <span class="mobile-create-payment-status" style="color:${paymentColor}">${remaining <= 0 ? "已结清" : `待收 ¥${formatCompactAmount(remaining)}`}</span>
+              </div>
+              <div class="mobile-order-progress-track" style="margin-top:6px"><div class="mobile-order-progress-fill" style="width:${paymentPct}%;background:${paymentColor}"></div></div>
+            </div>
+          ` : ""}
+          ${renderEditableSelectRow(
+            "收款状态",
+            "paymentStatus",
+            normalizePaymentStatus(draft),
+            PAYMENT_STATUSES.map((value) => ({ value, label: value })),
+          )}
+          ${renderEditableSelectRow(
+            "币种",
+            "currency",
+            draft.currency,
+            CURRENCY_OPTIONS.map((item) => ({ value: item.value, label: item.value })),
+          )}
+          <div class="mobile-create-expand-row" data-action="toggle-advanced-price">
+            <div class="mobile-create-expand-label">
+              <span>结算明细</span>
+              ${feeSummary !== "无手续费" ? `<span class="mobile-create-expand-badge">${feeSummary}</span>` : ""}
+            </div>
+            ${state.showAdvancedPrice ? ICONS.chevronUp(16) : ICONS.chevronDown(16)}
+          </div>
+          ${state.showAdvancedPrice ? `
+            ${renderEditableSelectRow(
+              "手续费方式",
+              "feeMode",
+              draft.feeMode,
+              FEE_MODES.map((item) => ({ value: item.value, label: item.label })),
+            )}
+            ${renderEditableNumberRow("平台抽成", "feeRate", draft.feeRate * 100, "0", {
+              suffix: "%",
+              kind: "percent",
+            })}
+            ${renderEditableSelectRow(
+              "紧急程度",
+              "priority",
+              draft.priority,
+              PRIORITIES.map((value) => ({ value, label: value })),
+            )}
+            ${renderEditableSelectRow(
+              "用途类型",
+              "usageType",
+              draft.usageType,
+              USAGE_TYPES.map((value) => ({ value, label: value })),
+            )}
+            ${renderEditableNumberRow("用途加价", "usageRate", draft.usageRate * 100, "0", {
+              suffix: "%",
+              kind: "percent",
+            })}
+            ${
+              draft.source === "米画师企划邀请"
+                ? renderReadonlyFormRow("企划金额口径", "按画师到手", "")
+                : ""
+            }
+          ` : ""}
         </div>
-        <button class="mobile-pill-button mobile-pill-button-accent" type="button" data-action="save-create-order">${editingOrder ? "保存修改" : "保存稿件"}</button>
       </div>
-    </section>
+
+      <div class="mobile-create-section">
+        <div class="mobile-create-section-label">${ICONS.calendar(12)} <span>时间与排期</span></div>
+        <div class="mobile-create-section-card">
+          ${renderEditableDateRow("动工日期", "startDate", draft.startDate || formatDateInput(new Date()))}
+          ${renderEditableDateRow("截稿日期", "dueDate", draft.dueDate)}
+          ${renderEditableDateRow("完成日期", "completedDate", draft.completedDate)}
+          ${renderEditableNumberRow("预计工时", "workHours", draft.workHours, "0", {
+            suffix: "小时",
+            kind: "hours",
+          })}
+          <div class="mobile-form-block">
+            <span class="mobile-form-label">排期条颜色</span>
+            <div class="mobile-color-row">
+              ${renderColorChoices(draft.calendarColor)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mobile-create-section">
+        <div class="mobile-create-section-label">${ICONS.alertCircle(12)} <span>进度与异常</span></div>
+        <div class="mobile-create-section-card">
+          ${renderEditableSelectRow("订单状态", "status", draft.status, STATUSES.map((value) => ({ value, label: value })))}
+          <div class="mobile-form-block">
+            <span class="mobile-form-label">制作阶段</span>
+            <div class="mobile-stage-track">
+              ${renderStageItems(stageOptions, draft.productionStage || BUILT_IN_PRODUCTION_STAGES[0])}
+            </div>
+          </div>
+          ${renderEditableSelectRow(
+            "异常类型",
+            "exceptionType",
+            draft.exceptionType,
+            EXCEPTION_TYPES.map((value) => ({ value, label: value })),
+          )}
+          ${renderEditableTextareaBlock("备注", "notes", draft.notes, "画面要求、分辨率、文件格式、特殊说明……")}
+        </div>
+      </div>
+    </div>
+
+    <div class="mobile-create-summary">
+      <div class="mobile-create-summary-grid">
+        <div class="mobile-create-summary-item">
+          <span class="mobile-summary-label">预估实得</span>
+          <strong class="mobile-summary-value" style="color:var(--mobile-accent)">${formatCompactAmount(calculateAdjustedNetAmountCny(draft, state.fxSettings))}</strong>
+        </div>
+        <div class="mobile-create-summary-item">
+          <span class="mobile-summary-label">已收</span>
+          <strong class="mobile-summary-value" style="color:#10B981">${formatCompactAmount(receivedAmount)}</strong>
+        </div>
+        <div class="mobile-create-summary-item">
+          <span class="mobile-summary-label">来源</span>
+          <strong class="mobile-summary-value" style="color:${sourceColor};font-size:13px">${escapeHtml(sourceLabel)}</strong>
+        </div>
+      </div>
+    </div>
+
+    <div class="mobile-fixed-save">
+      <button class="mobile-fixed-save-btn" type="button" data-action="save-create-order">${editingOrder ? "保存修改" : "保存稿件"}</button>
+    </div>
   `;
 }
 
@@ -1616,24 +1770,31 @@ function renderStatsTab() {
   const currentMonth = monthlyTrend[currentMonthIndex] || null;
   const delta = currentMonth && previousMonth ? currentMonth.settled - previousMonth.settled : 0;
 
+  const monthLabel = `${state.month.getFullYear()}年${state.month.getMonth() + 1}月`;
+
   return `
-    <section class="mobile-card">
+    <div class="mobile-month-switcher">
+      <button class="mobile-month-nav" type="button" data-action="month-prev">${ICONS.chevronLeft(18)}</button>
+      <span class="mobile-month-label">${monthLabel}</span>
+      <button class="mobile-month-nav" type="button" data-action="month-next">${ICONS.chevronRight(18)}</button>
+    </div>
+    <section class="mobile-card" style="box-shadow:none;border:none;padding:0;background:transparent">
       <div class="mobile-metric-grid">
-        <article class="mobile-metric-card">
-          <h3>本月稿件数</h3>
-          <strong>${monthOrders.length}</strong>
+        <article class="mobile-metric-card" style="background:#FEF3EE">
+          <span class="mobile-summary-label">本月稿件</span>
+          <strong class="mobile-summary-value" style="color:#E8734A">${monthOrders.length}<span style="font-size:12px;font-weight:400;margin-left:2px">件</span></strong>
         </article>
-        <article class="mobile-metric-card">
-          <h3>本月结算收入</h3>
-          <strong>${formatCompactAmount(settledIncome)}</strong>
+        <article class="mobile-metric-card" style="background:#F5F0FF">
+          <span class="mobile-summary-label">结算收入</span>
+          <strong class="mobile-summary-value" style="color:#8B5CF6">${formatCompactAmount(settledIncome)}</strong>
         </article>
-        <article class="mobile-metric-card">
-          <h3>已收净额</h3>
-          <strong>${formatCompactAmount(received)}</strong>
+        <article class="mobile-metric-card" style="background:#ECFDF5">
+          <span class="mobile-summary-label">已收净额</span>
+          <strong class="mobile-summary-value" style="color:#2f9b74">${formatCompactAmount(received)}</strong>
         </article>
-        <article class="mobile-metric-card">
-          <h3>待收金额</h3>
-          <strong>${formatCompactAmount(pending)}</strong>
+        <article class="mobile-metric-card" style="background:#FFFBEB">
+          <span class="mobile-summary-label">待收金额</span>
+          <strong class="mobile-summary-value" style="color:#D97706">${formatCompactAmount(pending)}</strong>
         </article>
       </div>
     </section>
@@ -1955,11 +2116,11 @@ function renderSettingsTab() {
     : hasSignedInUser()
       ? `
           <div class="mobile-settings-list">
-            <div class="mobile-settings-row">
+            <div class="mobile-settings-info-row">
               <span class="mobile-settings-label">当前账号</span>
               <span class="mobile-settings-value">${escapeHtml(state.user.email || "已登录")}</span>
             </div>
-            <div class="mobile-settings-row">
+            <div class="mobile-settings-info-row">
               <span class="mobile-settings-label">同步状态</span>
               <span class="mobile-settings-value">${cloudStatusLabel}</span>
             </div>
@@ -2026,96 +2187,128 @@ function renderSettingsTab() {
         `;
 
   return `
-    <section class="mobile-group">
-      <h2 class="mobile-section-title">数据模式</h2>
-      <div class="mobile-segmented mobile-settings-segmented">
-        <button type="button" data-action="mode-local" class="${state.mode === "local" ? "is-active" : ""}"${state.busy || state.recoveryMode ? " disabled" : ""}>本地使用</button>
-        <button type="button" data-action="mode-cloud" class="${state.mode === "cloud" ? "is-active" : ""}"${!cloudAvailable || state.busy || state.recoveryMode ? " disabled" : ""}>账号同步</button>
+    <!-- 数据模式 -->
+    <div class="mobile-settings-section">
+      <div class="mobile-settings-section-title">数据模式</div>
+      <div class="mobile-settings-card">
+        <button class="mobile-settings-row" type="button" data-action="mode-local"${state.busy || state.recoveryMode ? " disabled" : ""}>
+          <div class="mobile-settings-icon-circle" style="background: #ECFDF5; color: #2f9b74">${ICONS.smartphone(16)}</div>
+          <div class="mobile-settings-row-body">
+            <div class="mobile-settings-row-label">本地使用</div>
+          </div>
+          <div class="mobile-settings-row-right">
+            <div class="mobile-toggle${state.mode === "local" ? " is-on" : ""}"></div>
+          </div>
+        </button>
+        <button class="mobile-settings-row" type="button" data-action="mode-cloud"${!cloudAvailable || state.busy || state.recoveryMode ? " disabled" : ""}>
+          <div class="mobile-settings-icon-circle" style="background: #F5F0FF; color: #8B5CF6">${ICONS.cloud(16)}</div>
+          <div class="mobile-settings-row-body">
+            <div class="mobile-settings-row-label">账号同步</div>
+            <div class="mobile-settings-row-value">${cloudStatusLabel}</div>
+          </div>
+          <div class="mobile-settings-row-right">
+            <div class="mobile-toggle${state.mode === "cloud" ? " is-on" : ""}"></div>
+          </div>
+        </button>
       </div>
-      <div class="mobile-settings-list mobile-settings-list-tight">
-        <div class="mobile-settings-row">
-          <span class="mobile-settings-label">当前模式</span>
-          <span class="mobile-settings-value">${cloudModeLabel}</span>
-        </div>
-        <div class="mobile-settings-row">
-          <span class="mobile-settings-label">运行目标</span>
-          <span class="mobile-settings-value">${APP_RUNTIME.target}</span>
-        </div>
-        <div class="mobile-settings-row">
-          <span class="mobile-settings-label">当前状态</span>
-          <span class="mobile-settings-value">${cloudStatusLabel}</span>
-        </div>
+    </div>
+
+    <!-- 账号 -->
+    <div class="mobile-settings-section">
+      <div class="mobile-settings-section-title">账号</div>
+      <div class="mobile-settings-card" style="padding: 14px">
+        ${authPanel}
       </div>
-      <p class="mobile-settings-note">本地模式直接写当前设备；账号同步会在登录后沿用和网页端一致的 Supabase 数据表。</p>
-    </section>
-    <section class="mobile-group">
-      <h2 class="mobile-section-title">账号</h2>
-      ${authPanel}
-    </section>
-    <section class="mobile-group">
-      <h2 class="mobile-section-title">数据</h2>
-      <div class="mobile-settings-list">
-        <div class="mobile-settings-row">
-          <span class="mobile-settings-label">本地稿件数</span>
-          <span class="mobile-settings-value">${state.orders.length}</span>
+    </div>
+
+    <!-- 数据 -->
+    <div class="mobile-settings-section">
+      <div class="mobile-settings-section-title">数据</div>
+      <div class="mobile-settings-card">
+        <div class="mobile-settings-row" style="cursor:default">
+          <div class="mobile-settings-icon-circle" style="background: #FEF3EE; color: #E8734A">${ICONS.fileText(16)}</div>
+          <div class="mobile-settings-row-body">
+            <div class="mobile-settings-row-label">本地稿件数</div>
+          </div>
+          <div class="mobile-settings-row-right">${state.orders.length}</div>
         </div>
-        <div class="mobile-settings-row">
-          <span class="mobile-settings-label">业务模板</span>
-          <span class="mobile-settings-value">${getBusinessTemplateList().length} 个</span>
-        </div>
-        <div class="mobile-settings-row">
-          <span class="mobile-settings-label">自定义业务</span>
-          <span class="mobile-settings-value">${state.customBusinessTypes.length} 个</span>
-        </div>
+        <button class="mobile-settings-row" type="button" data-action="export-json">
+          <div class="mobile-settings-icon-circle" style="background: #ECFDF5; color: #2f9b74">${ICONS.download(16)}</div>
+          <div class="mobile-settings-row-body">
+            <div class="mobile-settings-row-label">导出 JSON</div>
+          </div>
+          <div class="mobile-settings-row-right">${ICONS.chevronRight(16)}</div>
+        </button>
+        <button class="mobile-settings-row" type="button" data-action="trigger-import-json">
+          <div class="mobile-settings-icon-circle" style="background: #F5F0FF; color: #8B5CF6">${ICONS.upload(16)}</div>
+          <div class="mobile-settings-row-body">
+            <div class="mobile-settings-row-label">导入 JSON</div>
+          </div>
+          <div class="mobile-settings-row-right">${ICONS.chevronRight(16)}</div>
+        </button>
+        <button class="mobile-settings-row" type="button" data-action="export-csv">
+          <div class="mobile-settings-icon-circle" style="background: #FFFBEB; color: #D97706">${ICONS.download(16)}</div>
+          <div class="mobile-settings-row-body">
+            <div class="mobile-settings-row-label">导出 CSV</div>
+          </div>
+          <div class="mobile-settings-row-right">${ICONS.chevronRight(16)}</div>
+        </button>
       </div>
       ${
         state.settingsFeedbackMessage
-          ? `
-            <div class="mobile-settings-feedback mobile-feedback-banner${state.settingsFeedbackTone === "error" ? " is-error" : " is-success"}">
+          ? `<div class="mobile-settings-feedback mobile-feedback-banner${state.settingsFeedbackTone === "error" ? " is-error" : " is-success"}" style="margin-top:8px">
               ${escapeHtml(state.settingsFeedbackMessage)}
-            </div>
-          `
+            </div>`
           : ""
       }
-      <div class="mobile-settings-actions">
-        <button class="mobile-settings-action-button" type="button" data-action="export-json">导出 JSON</button>
-        <button class="mobile-settings-action-button" type="button" data-action="trigger-import-json">导入 JSON</button>
-        <button class="mobile-settings-action-button" type="button" data-action="export-csv">导出 CSV</button>
-      </div>
-      <p class="mobile-settings-note">先复用网页端 JSON / CSV 口径，后续再接 iOS 原生分享与 Files。</p>
-    </section>
-    <section class="mobile-group">
-      <h2 class="mobile-section-title">客户洞察</h2>
-      <div class="mobile-settings-list">
-        <div class="mobile-settings-row">
-          <span class="mobile-settings-label">VIP 客户阈值 (¥)</span>
-          <input
-            class="mobile-form-input mobile-settings-input-narrow"
-            type="number"
-            min="0"
-            step="100"
-            placeholder="${DEFAULT_VIP_THRESHOLD}"
-            value="${state.clientInsightSettings.vipThreshold}"
-            data-vip-threshold-input
-            ${state.clientInsightBusy ? "disabled" : ""}
-          />
+    </div>
+
+    <!-- 客户洞察 -->
+    <div class="mobile-settings-section">
+      <div class="mobile-settings-section-title">客户洞察</div>
+      <div class="mobile-settings-card">
+        <div class="mobile-settings-row" style="cursor:default">
+          <div class="mobile-settings-icon-circle" style="background: #FEF3EE; color: #E8734A">${ICONS.sparkles(16)}</div>
+          <div class="mobile-settings-row-body">
+            <div class="mobile-settings-row-label">VIP 客户阈值 (¥)</div>
+          </div>
+          <div class="mobile-settings-row-right">
+            <input
+              class="mobile-form-input mobile-settings-input-narrow"
+              type="number"
+              min="0"
+              step="100"
+              placeholder="${DEFAULT_VIP_THRESHOLD}"
+              value="${state.clientInsightSettings.vipThreshold}"
+              data-vip-threshold-input
+              style="width:80px;text-align:right;padding:4px 8px;min-height:32px"
+              ${state.clientInsightBusy ? "disabled" : ""}
+            />
+          </div>
         </div>
       </div>
-      <p class="mobile-settings-note">累计金额达到此阈值的客户将在统计页标记为 VIP。</p>
-    </section>
-    <section class="mobile-group">
-      <h2 class="mobile-section-title">支持</h2>
-      <div class="mobile-settings-list">
-        <div class="mobile-settings-row">
-          <span class="mobile-settings-label">支持页面</span>
-          ${supportLink}
+    </div>
+
+    <!-- 支持 -->
+    <div class="mobile-settings-section">
+      <div class="mobile-settings-section-title">支持</div>
+      <div class="mobile-settings-card">
+        <div class="mobile-settings-row" style="cursor:default">
+          <div class="mobile-settings-icon-circle" style="background: #F5F0FF; color: #8B5CF6">${ICONS.helpCircle(16)}</div>
+          <div class="mobile-settings-row-body">
+            <div class="mobile-settings-row-label">支持页面</div>
+          </div>
+          <div class="mobile-settings-row-right">${supportLink}</div>
         </div>
-        <div class="mobile-settings-row">
-          <span class="mobile-settings-label">当前数据口径</span>
-          <span class="mobile-settings-value">与网页端一致</span>
+        <div class="mobile-settings-row" style="cursor:default">
+          <div class="mobile-settings-icon-circle" style="background: #ECFDF5; color: #2f9b74">${ICONS.info(16)}</div>
+          <div class="mobile-settings-row-body">
+            <div class="mobile-settings-row-label">数据口径</div>
+          </div>
+          <div class="mobile-settings-row-right">与网页端一致</div>
         </div>
       </div>
-    </section>
+    </div>
   `;
 }
 
@@ -2568,44 +2761,96 @@ function renderOrdersFilterOptions(options, selectedValue, labelResolver = (valu
 
 function renderOrderCard(order, options = {}) {
   const amount = formatCompactAmount(normalizeMoneyValue(order.amount));
-  const received = normalizeMoneyValue(order.receivedAmount) > 0 ? `已收 ${formatCompactAmount(order.receivedAmount)}` : "未收";
+  const received = normalizeMoneyValue(order.receivedAmount);
+  const receivedText = received > 0 ? `已收 ${formatCompactAmount(received)}` : "未收款";
   const dueText = normalizeDateKey(order.dueDate) || "未排截稿";
+  const dueShort = order.dueDate ? order.dueDate.slice(5).replace("-", "/") : "";
   const sourceColor = getSourceColor(order.source);
   const cardToneClass = options.tone ? ` is-${options.tone}` : "";
   const isConfirmingDelete = state.confirmDeleteOrderId === order.id;
   const editLabel = state.editingOrderId === order.id ? "编辑中" : "编辑";
   const isSelected = state.selectedOrderIds.has(order.id);
   const isExpanded = state.expandedOrderId === order.id;
+  const quickActions = renderOrderQuickActionButtons(order);
+  const exceptionSummary = renderOrderExceptionSummary(order);
+  const workHoursChip = renderWorkHoursChip(order);
+
+  // Urgency
+  const urgency = getUrgencyLevel(order);
+  const daysLeft = getDaysUntilDeadline(order);
+  let urgencyBanner = "";
+  if (urgency === "overdue") {
+    urgencyBanner = `<div class="mobile-order-urgency is-overdue">${ICONS.alertTriangle(11)} <span>逾期${Math.abs(daysLeft)}天</span></div>`;
+  } else if (urgency === "urgent") {
+    urgencyBanner = `<div class="mobile-order-urgency is-urgent">${ICONS.clock(11)} <span>${daysLeft === 0 ? "今天截稿" : `还剩${daysLeft}天`}</span></div>`;
+  }
+
+  // Type icon
+  const typeStyle = getBusinessTypeStyle(order.businessType);
+  const typeIcon = `<div class="mobile-order-type-icon" style="background:${typeStyle.color}12">${typeStyle.iconFn(17, typeStyle.color)}</div>`;
+
+  // Stage pill
+  const stageColor = getStatusDotColor(order.productionStage || order.status);
+  const stagePill = `<span class="mobile-order-stage-pill" style="background:${stageColor}14;color:${stageColor}"><span class="mobile-order-stage-dot" style="background:${stageColor}"></span>${escapeHtml(order.productionStage || "待推进")}</span>`;
+
+  // Payment pill
+  const paymentStatus = normalizePaymentStatus(order);
+  const paymentColor = paymentStatus === "已结清" ? "#10B981" : paymentStatus === "部分到账" ? "#F59E0B" : "#A8A29E";
+  const paymentPill = `<span class="mobile-order-payment-pill" style="background:${paymentColor}10;color:${paymentColor}">${escapeHtml(paymentStatus)}</span>`;
+
+  // Payment progress
+  const progressPct = getPaymentProgressPercent(order);
+  const progressColor = paymentStatus === "已结清" ? "#10B981" : "#F59E0B";
+
+  // Exception badges
   const exceptionBadge = isAbnormal(order)
     ? `<button type="button" class="mobile-badge is-warning is-clickable" data-order-exception="${escapeAttribute(order.id)}">${escapeHtml(order.exceptionType)}</button>`
     : "";
   const resolutionBadge = order.exceptionResolution
     ? `<span class="mobile-badge is-warning-soft">${escapeHtml(order.exceptionResolution)}</span>`
     : "";
-  const quickActions = renderOrderQuickActionButtons(order);
-  const exceptionSummary = renderOrderExceptionSummary(order);
-  const workHoursChip = renderWorkHoursChip(order);
+
+  // Deadline color
+  const deadlineColor = urgency === "overdue" ? "#DC2626" : urgency === "urgent" ? "#D97706" : "var(--mobile-muted-light)";
+  const deadlineWeight = urgency ? "600" : "400";
+
+  const isCompleted = isClosed(order);
 
   return `
     <article class="mobile-order-card${cardToneClass}" style="--order-source-color:${sourceColor}">
-      <div class="mobile-order-top">
-        <div>
-          <h3 class="mobile-order-title">${escapeHtml(order.projectName || "未命名稿件")}</h3>
-          <p class="mobile-order-client">${escapeHtml(order.clientName || "未填写客户")}</p>
+      ${urgencyBanner}
+      <div class="mobile-order-body">
+        <div class="mobile-order-row1">
+          ${typeIcon}
+          <div class="mobile-order-info">
+            <h3 class="mobile-order-title${isCompleted ? " is-completed" : ""}">${escapeHtml(order.projectName || "未命名稿件")}</h3>
+            <div class="mobile-order-subtitle">
+              <span class="mobile-order-client">${escapeHtml(order.clientName || "未填写客户")}</span>
+              <span class="mobile-order-dot">·</span>
+              <span class="mobile-order-type" style="color:${typeStyle.color}">${escapeHtml(order.businessType || "其他")}</span>
+            </div>
+          </div>
+          <div class="mobile-order-top-side">
+            <button type="button" class="mobile-order-select-btn${isSelected ? " is-active" : ""}" data-order-select="${escapeAttribute(order.id)}">${isSelected ? ICONS.check(14) : ""}</button>
+            <button type="button" class="mobile-order-chevron" data-order-toggle-detail="${escapeAttribute(order.id)}">${ICONS.chevronRight(18)}</button>
+          </div>
         </div>
-        <div class="mobile-order-top-side">
-          <button type="button" class="mobile-chip${isSelected ? " is-active" : ""}" data-order-select="${escapeAttribute(order.id)}">${isSelected ? "已选" : "选择"}</button>
-          <span class="mobile-badge mobile-badge-dot" style="color:${getStatusDotColor(order.status)};">${escapeHtml(order.status || "排期中")}</span>
+        <div class="mobile-order-row2">
+          ${stagePill}
+          ${paymentPill}
+          ${exceptionBadge}
+          ${resolutionBadge}
+          ${workHoursChip}
+          <span class="mobile-order-spacer"></span>
+          <span class="mobile-order-deadline" style="color:${deadlineColor};font-weight:${deadlineWeight}">${dueShort ? `截稿 ${dueShort}` : dueText}</span>
         </div>
-      </div>
-      <div class="mobile-order-meta">
-        <span class="mobile-badge">${escapeHtml(order.productionStage || "待推进")}</span>
-        <span class="mobile-badge is-accent">${dueText}</span>
-        <button type="button" class="mobile-badge is-green mobile-mono is-clickable" data-order-toggle-detail="${escapeAttribute(order.id)}">${received}</button>
-        <button type="button" class="mobile-badge mobile-mono is-clickable" data-order-toggle-detail="${escapeAttribute(order.id)}">${amount} ${isExpanded ? "▴" : "▾"}</button>
-        ${workHoursChip}
-        ${exceptionBadge}
-        ${resolutionBadge}
+        <div class="mobile-order-row3">
+          <div class="mobile-order-progress">
+            <div class="mobile-order-progress-track"><div class="mobile-order-progress-fill" style="width:${progressPct}%;background:${progressColor}"></div></div>
+            <span class="mobile-order-progress-label">${receivedText}</span>
+          </div>
+          <button type="button" class="mobile-order-amount${isCompleted ? " is-muted" : ""}" data-order-toggle-detail="${escapeAttribute(order.id)}">¥${amount}</button>
+        </div>
       </div>
       ${isExpanded ? renderAmountDetail(order) : ""}
       ${isExpanded ? renderStageTimeline(order) : ""}
@@ -3284,6 +3529,27 @@ async function handleAction(action) {
       return;
     }
     refreshLocalData();
+    render();
+    return;
+  }
+  if (action === "toggle-search") {
+    state.showSearch = !state.showSearch;
+    if (!state.showSearch) { state.orderQuery = ""; }
+    render();
+    return;
+  }
+  if (action === "clear-search") {
+    state.orderQuery = "";
+    render();
+    return;
+  }
+  if (action === "toggle-filters") {
+    state.showFilters = !state.showFilters;
+    render();
+    return;
+  }
+  if (action === "toggle-advanced-price") {
+    state.showAdvancedPrice = !state.showAdvancedPrice;
     render();
     return;
   }
