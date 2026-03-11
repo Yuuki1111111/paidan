@@ -109,7 +109,7 @@ let authCooldownTicker = null;
 
 const state = {
   tab: "orders",
-  orderScope: "today",
+  orderScope: "all",
   showSearch: false,
   showFilters: false,
   showAdvancedPrice: false,
@@ -1626,7 +1626,7 @@ function renderCreateTab() {
             <div class="mobile-create-payment-progress">
               <div class="mobile-row-between">
                 <span class="mobile-form-hint">收款进度</span>
-                <span class="mobile-create-payment-status" style="color:${paymentColor}">${remaining <= 0 ? "已结清" : `待收 ¥${formatCompactAmount(remaining)}`}</span>
+                <span class="mobile-create-payment-status" style="color:${paymentColor}">${remaining <= 0 ? "已结清" : `待收 ${formatCompactAmount(remaining)}`}</span>
               </div>
               <div class="mobile-order-progress-track" style="margin-top:6px"><div class="mobile-order-progress-fill" style="width:${paymentPct}%;background:${paymentColor}"></div></div>
             </div>
@@ -2849,7 +2849,7 @@ function renderOrderCard(order, options = {}) {
             <div class="mobile-order-progress-track"><div class="mobile-order-progress-fill" style="width:${progressPct}%;background:${progressColor}"></div></div>
             <span class="mobile-order-progress-label">${receivedText}</span>
           </div>
-          <button type="button" class="mobile-order-amount${isCompleted ? " is-muted" : ""}" data-order-toggle-detail="${escapeAttribute(order.id)}">¥${amount}</button>
+          <button type="button" class="mobile-order-amount${isCompleted ? " is-muted" : ""}" data-order-toggle-detail="${escapeAttribute(order.id)}">${amount}</button>
         </div>
       </div>
       ${isExpanded ? renderAmountDetail(order) : ""}

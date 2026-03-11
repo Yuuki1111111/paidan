@@ -1,2 +1,15 @@
 dist/
 .DS_Store
+
+# Local environment and tooling
+.env.local
+.claude/
+.codex/
+.netlify/
+.playwright-cli/
+node_modules/
+supabase/.temp/
+
+# Design source files and generated native shell
+Freelance Illustrator App Design/
+ios/
