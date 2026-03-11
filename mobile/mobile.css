@@ -978,6 +978,7 @@ body {
 
 .mobile-create-section-card {
   margin: 0 16px;
+  padding: 0 16px;
   background: #FFF;
   border-radius: var(--mobile-card-radius);
   border: 1px solid #F0ECE7;
@@ -1150,7 +1151,8 @@ body {
 
 .mobile-form-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: auto 1fr;
+  align-items: center;
   gap: 12px;
   padding: 14px 0;
   border-bottom: 1px solid var(--mobile-border);
@@ -1163,6 +1165,8 @@ body {
 .mobile-form-label {
   font-size: 15px;
   font-weight: 600;
+  white-space: nowrap;
+  min-width: 4em;
 }
 
 .mobile-form-hint {

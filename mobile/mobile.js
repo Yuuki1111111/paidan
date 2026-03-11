@@ -4669,6 +4669,7 @@ async function saveCreateOrder() {
   const clientName = String(state.createDraft.clientName || "").trim();
   const dueDate = normalizeDateKey(state.createDraft.dueDate);
   const editingOrder = state.editingOrderId ? state.orders.find((order) => order.id === state.editingOrderId) : null;
+  const wasEditing = Boolean(editingOrder);
 
   if (!projectName || !clientName || !dueDate) {
     state.createFeedbackTone = "error";
@@ -4718,7 +4719,7 @@ async function saveCreateOrder() {
   state.editingOrderId = "";
   state.confirmDeleteOrderId = "";
   refreshLocalData();
-  state.createDraft = buildDraftFromSeed(order);
+  state.createDraft = wasEditing ? buildCreateDraft() : buildDraftFromSeed(order);
   state.createContextNote = "";
   state.createFeedbackTone = cloudError || presetCloudError ? "error" : "success";
   state.createFeedbackMessage = cloudError
@@ -4731,6 +4732,12 @@ async function saveCreateOrder() {
         ? `已${editingOrder ? "更新" : "保存"}稿件：${order.projectName}。登录后会继续同步到云端。`
         : `已${editingOrder ? "更新" : "保存"}稿件：${order.projectName}。`;
   state.selectedCalendarDate = normalizeDateKey(order.dueDate || order.startDate) || state.selectedCalendarDate;
+  if (wasEditing) {
+    setOrdersFeedback(state.createFeedbackMessage, state.createFeedbackTone);
+    state.createFeedbackMessage = "";
+    state.createFeedbackTone = "";
+    state.tab = "orders";
+  }
   render();
 }
 
