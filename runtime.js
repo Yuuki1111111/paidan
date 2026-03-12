@@ -1,5 +1,6 @@
 const cfg = globalThis.APP_CONFIG || {};
 const capacitor = globalThis.Capacitor || null;
+const configuredTarget = String(cfg.APP_TARGET || "").trim().toLowerCase();
 const detectedPlatform =
   typeof capacitor?.getPlatform === "function"
     ? capacitor.getPlatform()
@@ -19,9 +20,9 @@ export const APP_RUNTIME = {
   supportUrl: cfg.SUPPORT_URL || "/support.html",
   isNativeApp,
   platform: detectedPlatform,
-  target: isNativeApp ? "native" : "web",
-  isAppStoreBuild: isNativeApp,
-  shouldRegisterServiceWorker: !isNativeApp,
+  target: configuredTarget || (isNativeApp ? "native" : "web"),
+  isAppStoreBuild: configuredTarget === "appstore-ios" || (isNativeApp && detectedPlatform === "ios"),
+  shouldRegisterServiceWorker: !isNativeApp && configuredTarget !== "appstore-ios",
   shouldShowSponsorUi: true,
   defaultStorageMode: "",
 };

@@ -94,6 +94,19 @@ python3 -m http.server 8000
 
 可以直接参考仓库里的 [.env.example](/Users/yuuki/codeproject/paidan/.env.example)。
 
+如果你的部署平台习惯用 Vite 风格变量名，也可以直接配：
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+- `VITE_TURNSTILE_SITE_KEY`
+- `VITE_AUTH_REDIRECT_URL`
+- `VITE_SUPPORT_URL`
+- `VITE_APP_TARGET`
+
+构建脚本现在会自动兼容 `VITE_*` 和非 `VITE_*` 两套名字。
+
+本地开发时，如果你把这些值写在根目录的 `.env.local`，`node build.js` 也会自动读取，不需要手动 `export`。
+
 ### 4. 在 Netlify 配环境变量
 
 Netlify 项目里添加：

@@ -4,4 +4,5 @@ window.APP_CONFIG = {
   TURNSTILE_SITE_KEY: "",
   AUTH_REDIRECT_URL: "",
   SUPPORT_URL: "",
+  APP_TARGET: "",
 };
