@@ -1,4 +1,15 @@
 const cfg = globalThis.APP_CONFIG || {};
+const capacitor = globalThis.Capacitor || null;
+const detectedPlatform =
+  typeof capacitor?.getPlatform === "function"
+    ? capacitor.getPlatform()
+    : typeof capacitor?.platform === "string"
+      ? capacitor.platform
+      : "web";
+const isNativeApp =
+  typeof capacitor?.isNativePlatform === "function"
+    ? capacitor.isNativePlatform()
+    : detectedPlatform !== "web";
 
 export const APP_RUNTIME = {
   supabaseUrl: cfg.SUPABASE_URL || "",
@@ -6,11 +17,11 @@ export const APP_RUNTIME = {
   turnstileSiteKey: cfg.TURNSTILE_SITE_KEY || "",
   authRedirectUrl: cfg.AUTH_REDIRECT_URL || "",
   supportUrl: cfg.SUPPORT_URL || "",
-  isNativeApp: false,
-  platform: "web",
-  target: "web",
-  isAppStoreBuild: false,
-  shouldRegisterServiceWorker: true,
+  isNativeApp,
+  platform: detectedPlatform,
+  target: isNativeApp ? "native" : "web",
+  isAppStoreBuild: isNativeApp,
+  shouldRegisterServiceWorker: !isNativeApp,
   shouldShowSponsorUi: true,
   defaultStorageMode: "",
 };

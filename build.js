@@ -38,6 +38,8 @@ const envConfig = {
   SUPABASE_URL: process.env.SUPABASE_URL || "",
   SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY || "",
   TURNSTILE_SITE_KEY: process.env.TURNSTILE_SITE_KEY || "",
+  AUTH_REDIRECT_URL: process.env.AUTH_REDIRECT_URL || "",
+  SUPPORT_URL: process.env.SUPPORT_URL || "",
 };
 
 writeFileSync(
@@ -48,7 +50,13 @@ writeFileSync(
 
 if (existsSync(join(root, "env.js"))) {
   const sourceEnv = readFileSync(join(root, "env.js"), "utf8");
-  if (!envConfig.SUPABASE_URL && !envConfig.SUPABASE_ANON_KEY && !envConfig.TURNSTILE_SITE_KEY) {
+  if (
+    !envConfig.SUPABASE_URL &&
+    !envConfig.SUPABASE_ANON_KEY &&
+    !envConfig.TURNSTILE_SITE_KEY &&
+    !envConfig.AUTH_REDIRECT_URL &&
+    !envConfig.SUPPORT_URL
+  ) {
     writeFileSync(join(dist, "env.js"), sourceEnv, "utf8");
   }
 }

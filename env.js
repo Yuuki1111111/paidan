@@ -2,4 +2,6 @@ window.APP_CONFIG = {
   SUPABASE_URL: "",
   SUPABASE_ANON_KEY: "",
   TURNSTILE_SITE_KEY: "",
+  AUTH_REDIRECT_URL: "",
+  SUPPORT_URL: "",
 };

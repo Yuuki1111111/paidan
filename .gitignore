@@ -10,6 +10,5 @@ dist/
 node_modules/
 supabase/.temp/
 
-# Design source files and generated native shell
+# Design source files
 Freelance Illustrator App Design/
-ios/
