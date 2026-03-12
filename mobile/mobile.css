@@ -362,6 +362,32 @@ body {
   gap: 12px;
 }
 
+.mobile-threshold-inline-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.mobile-threshold-inline {
+  width: 4.25em;
+  border: 0;
+  border-bottom: 1px dashed currentColor;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  outline: none;
+  padding: 0;
+  margin: 0;
+}
+
+.mobile-threshold-inline:focus {
+  border-bottom-style: solid;
+  border-bottom-color: var(--mobile-primary);
+}
+
 .mobile-empty {
   padding: 20px 16px;
   color: #A8A29E;

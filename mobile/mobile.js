@@ -1850,7 +1850,7 @@ function renderStatsTab() {
     <section class="mobile-card">
       <div class="mobile-row-between">
         <h2 class="mobile-section-title">客户累计</h2>
-        <span class="mobile-muted">重点阈值 ${formatCompactAmount(vipThreshold)}</span>
+        <span class="mobile-muted mobile-threshold-inline-wrap">重点≥¥<input class="mobile-threshold-inline" type="number" min="0" step="100" value="${vipThreshold}" data-vip-threshold-input ${state.clientInsightBusy ? "disabled" : ""} /></span>
       </div>
       <p class="mobile-form-hint">共 ${clientBreakdown.length} 位客户，达到重点客户阈值 ${vipCount} 位。这里按累计结算收入排行。</p>
       <div class="mobile-client-list">
@@ -2261,32 +2261,6 @@ function renderSettingsTab() {
             </div>`
           : ""
       }
-    </div>
-
-    <!-- 客户洞察 -->
-    <div class="mobile-settings-section">
-      <div class="mobile-settings-section-title">客户洞察</div>
-      <div class="mobile-settings-card">
-        <div class="mobile-settings-row" style="cursor:default">
-          <div class="mobile-settings-icon-circle" style="background: #FEF3EE; color: #E8734A">${ICONS.sparkles(16)}</div>
-          <div class="mobile-settings-row-body">
-            <div class="mobile-settings-row-label">VIP 客户阈值 (¥)</div>
-          </div>
-          <div class="mobile-settings-row-right">
-            <input
-              class="mobile-form-input mobile-settings-input-narrow"
-              type="number"
-              min="0"
-              step="100"
-              placeholder="${DEFAULT_VIP_THRESHOLD}"
-              value="${state.clientInsightSettings.vipThreshold}"
-              data-vip-threshold-input
-              style="width:80px;text-align:right;padding:4px 8px;min-height:32px"
-              ${state.clientInsightBusy ? "disabled" : ""}
-            />
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- 支持 -->
