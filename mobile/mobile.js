@@ -5952,12 +5952,15 @@ async function loadRemoteClientInsightSettings() {
   if (!state.supabase || !state.user) return null;
   const { data, error } = await state.supabase
     .from("user_preferences")
-    .select("vip_threshold,vip_threshold_updated_at")
+    .select("vip_threshold,vip_threshold_updated_at,updated_at")
     .eq("user_id", state.user.id)
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
-  return normalizeClientInsightSettings({ vipThreshold: data.vip_threshold, updatedAt: data.vip_threshold_updated_at });
+  return normalizeClientInsightSettings({
+    vipThreshold: data.vip_threshold,
+    updatedAt: data.vip_threshold_updated_at || data.updated_at,
+  });
 }
 
 async function upsertRemoteClientInsightSettings(settings) {
@@ -5965,10 +5968,13 @@ async function upsertRemoteClientInsightSettings(settings) {
   const { data, error } = await state.supabase
     .from("user_preferences")
     .upsert({ user_id: state.user.id, vip_threshold: normalized.vipThreshold, vip_threshold_updated_at: normalized.updatedAt || new Date().toISOString() }, { onConflict: "user_id" })
-    .select("vip_threshold,vip_threshold_updated_at")
+    .select("vip_threshold,vip_threshold_updated_at,updated_at")
     .single();
   if (error) throw error;
-  return normalizeClientInsightSettings({ vipThreshold: data.vip_threshold, updatedAt: data.vip_threshold_updated_at });
+  return normalizeClientInsightSettings({
+    vipThreshold: data.vip_threshold,
+    updatedAt: data.vip_threshold_updated_at || data.updated_at,
+  });
 }
 
 async function syncClientInsightSettingsOnLogin() {

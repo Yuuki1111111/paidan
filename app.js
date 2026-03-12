@@ -2203,7 +2203,7 @@ async function loadRemoteClientInsightSettings() {
 
   const { data, error } = await state.supabase
     .from(USER_PREFERENCES_TABLE)
-    .select("vip_threshold,updated_at")
+    .select("vip_threshold,vip_threshold_updated_at,updated_at")
     .eq("user_id", state.user.id)
     .maybeSingle();
   if (error) throw error;
@@ -2211,7 +2211,7 @@ async function loadRemoteClientInsightSettings() {
 
   return normalizeClientInsightSettings({
     vipThreshold: data.vip_threshold,
-    updatedAt: data.updated_at,
+    updatedAt: data.vip_threshold_updated_at || data.updated_at,
   });
 }
 
@@ -2221,17 +2221,18 @@ async function upsertRemoteClientInsightSettings(settings) {
   const payload = {
     user_id: state.user.id,
     vip_threshold: normalized.vipThreshold,
+    vip_threshold_updated_at: normalized.updatedAt || new Date().toISOString(),
   };
   const { data, error } = await state.supabase
     .from(USER_PREFERENCES_TABLE)
     .upsert(payload, { onConflict: "user_id" })
-    .select("vip_threshold,updated_at")
+    .select("vip_threshold,vip_threshold_updated_at,updated_at")
     .single();
   if (error) throw error;
 
   return normalizeClientInsightSettings({
     vipThreshold: data.vip_threshold,
-    updatedAt: data.updated_at,
+    updatedAt: data.vip_threshold_updated_at || data.updated_at,
   });
 }
 

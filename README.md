@@ -82,13 +82,17 @@ python3 -m http.server 8000
 - `content`
 - `page_context`
 
-### 3. 获取前端需要的三个值
+### 3. 获取前端需要的前台配置
 
 在 Supabase 项目里找到：
 
 - `Project URL`
 - `anon` / `publishable` key
 - Cloudflare Turnstile 的 `site key`
+- 你最终用于审核 / 上架的移动端回跳地址
+- 你最终用于 App Store Connect 的支持页地址
+
+可以直接参考仓库里的 [.env.example](/Users/yuuki/codeproject/paidan/.env.example)。
 
 ### 4. 在 Netlify 配环境变量
 
@@ -97,6 +101,8 @@ Netlify 项目里添加：
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
 - `TURNSTILE_SITE_KEY`
+- `AUTH_REDIRECT_URL`
+- `SUPPORT_URL`
 
 ### 4.1 在 Supabase 配 Auth URL
 
@@ -149,7 +155,49 @@ Netlify 项目里添加：
 
 - `/` 宣传首页
 - `/app/` 工具页
+- `/mobile/` 移动端
 - `/privacy.html` 隐私说明
+- `/support.html` 支持中心
+
+### 5.1 部署 Supabase Edge Function
+
+移动端和网页端都已经有“删除账号”入口。要让它真正可用，需要部署 [supabase/functions/delete-account/index.ts](/Users/yuuki/codeproject/paidan/supabase/functions/delete-account/index.ts)。
+
+先给函数配置密钥：
+
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+然后部署：
+
+```bash
+supabase functions deploy delete-account
+```
+
+如果你已经在本机登录过 Supabase CLI，也可以直接设置函数密钥：
+
+```bash
+supabase secrets set \
+  SUPABASE_URL=你的项目地址 \
+  SUPABASE_ANON_KEY=你的匿名公钥 \
+  SUPABASE_SERVICE_ROLE_KEY=你的 service role key
+```
+
+### 5.2 App Store / TestFlight 最少要准备的值
+
+如果目标是 iPhone 上架，最少准备这 5 个外部值：
+
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `TURNSTILE_SITE_KEY`
+- `AUTH_REDIRECT_URL`
+- `SUPPORT_URL`
+
+另外还需要 2 个审核侧信息：
+
+- 一个审核可登录账号，或者一套可复现的 demo 数据
+- App Store Connect 里的隐私政策 URL，当前可以先用 `/privacy.html`
 
 ## 部署到 Netlify
 
