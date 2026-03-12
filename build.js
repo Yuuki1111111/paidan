@@ -13,6 +13,7 @@ for (const file of [
   "landing.js",
   "site-content.js",
   "privacy.html",
+  "support.html",
   "styles.css",
   "app.js",
   "runtime.js",

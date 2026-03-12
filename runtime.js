@@ -16,7 +16,7 @@ export const APP_RUNTIME = {
   supabaseAnonKey: cfg.SUPABASE_ANON_KEY || "",
   turnstileSiteKey: cfg.TURNSTILE_SITE_KEY || "",
   authRedirectUrl: cfg.AUTH_REDIRECT_URL || "",
-  supportUrl: cfg.SUPPORT_URL || "",
+  supportUrl: cfg.SUPPORT_URL || "/support.html",
   isNativeApp,
   platform: detectedPlatform,
   target: isNativeApp ? "native" : "web",
