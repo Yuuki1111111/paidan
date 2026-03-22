@@ -1089,16 +1089,16 @@ async function signUpWithPasswordMobile() {
     if (error) {
       throw error;
     }
-    state.authPassword = “”;
+    state.authPassword = "";
     if (data.session) {
-      setSettingsFeedback(“注册成功，已自动登录。”, “success”, { reveal: true });
+      setSettingsFeedback("注册成功，已自动登录。", "success", { reveal: true });
     } else {
-      startAuthCooldown(“signup”, email);
-      startAuthCooldown(“resendSignup”, email);
-      setSettingsFeedback(“注册成功，请去邮箱点验证链接。60 秒内先别重复点注册；没收到再点”重发验证邮件”。”, “success”, { reveal: true });
+      startAuthCooldown("signup", email);
+      startAuthCooldown("resendSignup", email);
+      setSettingsFeedback("注册成功，请去邮箱点验证链接。60 秒内先别重复点注册；没收到再点「重发验证邮件」。", "success", { reveal: true });
     }
   } catch (error) {
-    handleAuthActionError(error, { action: “signup”, email });
+    handleAuthActionError(error, { action: "signup", email });
   } finally {
     setBusy(false);
   }
