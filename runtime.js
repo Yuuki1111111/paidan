@@ -18,6 +18,8 @@ export const APP_RUNTIME = {
   turnstileSiteKey: cfg.TURNSTILE_SITE_KEY || "",
   authRedirectUrl: cfg.AUTH_REDIRECT_URL || "",
   supportUrl: cfg.SUPPORT_URL || "/support.html",
+  termsUrl: cfg.TERMS_URL || "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/",
+  privacyUrl: cfg.PRIVACY_URL || "/privacy.html",
   isNativeApp,
   platform: detectedPlatform,
   target: configuredTarget || (isNativeApp ? "native" : "web"),

@@ -78,6 +78,7 @@ for (const file of [
   "site-content.js",
   "privacy.html",
   "support.html",
+  "terms.html",
   "styles.css",
   "app.js",
   "runtime.js",
@@ -113,6 +114,8 @@ const envConfig = {
   TURNSTILE_SITE_KEY: readEnv("TURNSTILE_SITE_KEY"),
   AUTH_REDIRECT_URL: readEnv("AUTH_REDIRECT_URL"),
   SUPPORT_URL: readEnv("SUPPORT_URL"),
+  TERMS_URL: readEnv("TERMS_URL"),
+  PRIVACY_URL: readEnv("PRIVACY_URL"),
   APP_TARGET: readEnv("APP_TARGET"),
 };
 

@@ -601,6 +601,11 @@ function renderPaywallOverlay() {
         </ul>
         ${renderPaywallProductsArea()}
         <button class="mobile-paywall-restore" data-action="restore-purchases">恢复购买</button>
+        <div class="mobile-paywall-legal">
+          <button class="mobile-paywall-legal-link" type="button" data-action="open-privacy">隐私政策</button>
+          <span class="mobile-paywall-legal-sep">\u00b7</span>
+          <button class="mobile-paywall-legal-link" type="button" data-action="open-terms">使用条款</button>
+        </div>
       </div>
     </div>
   `;
@@ -1072,11 +1077,6 @@ async function signUpWithPasswordMobile() {
     return;
   }
 
-  const captchaToken = getOptionalTurnstileToken("注册");
-  if (hasTurnstileConfig() && !captchaToken) {
-    return;
-  }
-
   setBusy(true);
   try {
     const { data, error } = await client.auth.signUp({
@@ -1084,24 +1084,22 @@ async function signUpWithPasswordMobile() {
       password,
       options: {
         emailRedirectTo: getAuthRedirectUrl(currentSiteUrl()),
-        ...(captchaToken ? { captchaToken } : {}),
       },
     });
     if (error) {
       throw error;
     }
-    state.authPassword = "";
+    state.authPassword = “”;
     if (data.session) {
-      setSettingsFeedback("注册成功，已自动登录。", "success", { reveal: true });
+      setSettingsFeedback(“注册成功，已自动登录。”, “success”, { reveal: true });
     } else {
-      startAuthCooldown("signup", email);
-      startAuthCooldown("resendSignup", email);
-      setSettingsFeedback("注册成功，请去邮箱点验证链接。60 秒内先别重复点注册；没收到再点“重发验证邮件”。", "success", { reveal: true });
+      startAuthCooldown(“signup”, email);
+      startAuthCooldown(“resendSignup”, email);
+      setSettingsFeedback(“注册成功，请去邮箱点验证链接。60 秒内先别重复点注册；没收到再点”重发验证邮件”。”, “success”, { reveal: true });
     }
   } catch (error) {
-    handleAuthActionError(error, { action: "signup", email });
+    handleAuthActionError(error, { action: “signup”, email });
   } finally {
-    resetMobileTurnstile();
     setBusy(false);
   }
 }
@@ -1126,11 +1124,6 @@ async function resendSignupEmailMobile() {
     return;
   }
 
-  const captchaToken = getOptionalTurnstileToken("重发验证邮件");
-  if (hasTurnstileConfig() && !captchaToken) {
-    return;
-  }
-
   setBusy(true);
   try {
     const { error } = await client.auth.resend({
@@ -1138,7 +1131,6 @@ async function resendSignupEmailMobile() {
       email,
       options: {
         emailRedirectTo: getAuthRedirectUrl(currentSiteUrl()),
-        ...(captchaToken ? { captchaToken } : {}),
       },
     });
     if (error) {
@@ -1150,7 +1142,6 @@ async function resendSignupEmailMobile() {
   } catch (error) {
     handleAuthActionError(error, { action: "resendSignup", email });
   } finally {
-    resetMobileTurnstile();
     setBusy(false);
   }
 }
@@ -1175,16 +1166,10 @@ async function requestPasswordResetMobile() {
     return;
   }
 
-  const captchaToken = getOptionalTurnstileToken("发送重置邮件");
-  if (hasTurnstileConfig() && !captchaToken) {
-    return;
-  }
-
   setBusy(true);
   try {
     const { error } = await client.auth.resetPasswordForEmail(email, {
       redirectTo: getAuthRedirectUrl(currentSiteUrl()),
-      ...(captchaToken ? { captchaToken } : {}),
     });
     if (error) {
       throw error;
@@ -1194,7 +1179,6 @@ async function requestPasswordResetMobile() {
   } catch (error) {
     handleAuthActionError(error, { action: "forgotPassword", email });
   } finally {
-    resetMobileTurnstile();
     setBusy(false);
   }
 }
@@ -1255,29 +1239,11 @@ async function signInWithPasswordMobile() {
     return;
   }
 
-  const captchaToken = hasTurnstileConfig() ? state.turnstileToken : "";
-  if (hasTurnstileConfig() && !captchaToken) {
-    setSettingsFeedback(
-      state.turnstileStatus === "error" ? getMobileTurnstileErrorMessage() : "请先完成人机验证，再继续登录。",
-      "error",
-      { reveal: true },
-    );
-    render();
-    return;
-  }
-
   setBusy(true);
   try {
     const { error } = await client.auth.signInWithPassword({
       email,
       password,
-      ...(captchaToken
-        ? {
-            options: {
-              captchaToken,
-            },
-          }
-        : {}),
     });
     if (error) {
       throw error;
@@ -1288,7 +1254,6 @@ async function signInWithPasswordMobile() {
   } catch (error) {
     setSettingsFeedback(mapAuthError(error), "error", { reveal: true });
   } finally {
-    resetMobileTurnstile();
     setBusy(false);
   }
 }
@@ -1410,14 +1375,14 @@ async function syncCloudNow() {
 }
 
 function hasTurnstileConfig() {
-  // Supabase server-side has Turnstile captcha enforcement enabled.
-  // Even native apps MUST send a valid captchaToken or the server will reject
-  // auth requests.  Cloudflare Turnstile "managed" mode works in WKWebView.
-  return Boolean(APP_RUNTIME.turnstileSiteKey);
+  // Turnstile CAPTCHA has been removed — Supabase server-side captcha is now
+  // disabled.  Auth rate limits and email verification provide sufficient
+  // protection for the current product stage.
+  return false;
 }
 
 function shouldRenderTurnstile() {
-  return state.tab === "settings" && !hasSignedInUser() && !state.recoveryMode && hasTurnstileConfig();
+  return false;
 }
 
 function getMobileTurnstileNote() {
@@ -2948,14 +2913,7 @@ function renderSettingsTab() {
               ${getAuthActionLabel("forgotPassword", forgotPasswordCooldown)}
             </button>
           </div>
-          ${renderMobileTurnstilePanel()}
-          <p class="mobile-settings-note">${
-            APP_RUNTIME.isNativeApp
-              ? "移动端支持登录、注册、重发验证邮件和忘记密码；邮箱验证链接与重置密码链接会回到当前页面。"
-              : hasTurnstileConfig()
-              ? "移动端现在支持登录、注册、重发验证邮件和忘记密码；邮箱验证链接与重置密码链接会回到当前页面。"
-              : "当前项目没有开启人机验证，所以移动端暂时只支持登录；注册、重发验证邮件和忘记密码仍请走网页端。"
-          }</p>
+          <p class="mobile-settings-note">支持登录、注册、重发验证邮件和忘记密码；邮箱验证链接与重置密码链接会回到当前页面。</p>
         `;
 
   const proSection = !APP_RUNTIME.isNativeApp
@@ -3109,6 +3067,27 @@ function renderSettingsTab() {
           <div class="mobile-settings-icon-circle" style="background: #FFF7ED; color: #E8734A">${ICONS.messageCircle(16)}</div>
           <div class="mobile-settings-row-body">
             <div class="mobile-settings-row-label">意见反馈</div>
+          </div>
+          <div class="mobile-settings-row-right">${ICONS.chevronRight(16)}</div>
+        </button>
+        <button class="mobile-settings-row" type="button" data-action="open-support">
+          <div class="mobile-settings-icon-circle" style="background: #F5F0FF; color: #8B5CF6">${ICONS.helpCircle(16)}</div>
+          <div class="mobile-settings-row-body">
+            <div class="mobile-settings-row-label">支持中心</div>
+          </div>
+          <div class="mobile-settings-row-right">${ICONS.chevronRight(16)}</div>
+        </button>
+        <button class="mobile-settings-row" type="button" data-action="open-privacy">
+          <div class="mobile-settings-icon-circle" style="background: #ECFDF5; color: #2f9b74">${ICONS.shield(16)}</div>
+          <div class="mobile-settings-row-body">
+            <div class="mobile-settings-row-label">隐私政策</div>
+          </div>
+          <div class="mobile-settings-row-right">${ICONS.chevronRight(16)}</div>
+        </button>
+        <button class="mobile-settings-row" type="button" data-action="open-terms">
+          <div class="mobile-settings-icon-circle" style="background: #EFF6FF; color: #3B82F6">${ICONS.fileText(16)}</div>
+          <div class="mobile-settings-row-body">
+            <div class="mobile-settings-row-label">使用条款</div>
           </div>
           <div class="mobile-settings-row-right">${ICONS.chevronRight(16)}</div>
         </button>
@@ -4697,6 +4676,28 @@ async function handleAction(action, element) {
   }
   if (action === "restore-purchases") {
     await handleRestorePurchases();
+    return;
+  }
+  if (action === "open-privacy" || action === "open-terms" || action === "open-support") {
+    const url = action === "open-privacy"
+      ? APP_RUNTIME.privacyUrl
+      : action === "open-terms"
+        ? APP_RUNTIME.termsUrl
+        : APP_RUNTIME.supportUrl;
+    if (APP_RUNTIME.isNativeApp) {
+      try {
+        const browser = globalThis.Capacitor?.Plugins?.Browser;
+        if (browser) {
+          await browser.open({ url });
+        } else {
+          window.open(url, "_blank");
+        }
+      } catch (_) {
+        // ignore
+      }
+    } else {
+      window.open(url, "_blank");
+    }
     return;
   }
   if (action === "manage-subscription") {

@@ -3732,6 +3732,30 @@ textarea {
   font-family: inherit;
 }
 
+.mobile-paywall-legal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 0 4px;
+}
+
+.mobile-paywall-legal-link {
+  border: none;
+  background: none;
+  font-size: 12px;
+  color: var(--mobile-muted, #78716C);
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 2px 4px;
+  font-family: inherit;
+}
+
+.mobile-paywall-legal-sep {
+  font-size: 12px;
+  color: var(--mobile-muted, #78716C);
+}
+
 /* ══════════════════════════════════════════════════════════
    iPad Sidebar Layout
    Breakpoint: min-width 768 + min-height 700 to avoid

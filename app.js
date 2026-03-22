@@ -1786,23 +1786,15 @@ async function signUpWithEmail() {
     renderSyncPanel();
     return;
   }
-  requestTurnstileChallenge("signUp");
-  const captchaToken = await getTurnstileToken();
-  if (!captchaToken) {
-    return;
-  }
-
   setBusy(true);
   const { data, error } = await state.supabase.auth.signUp({
     email,
     password,
     options: {
       emailRedirectTo: currentSiteUrl(),
-      captchaToken,
     },
   });
   setBusy(false);
-  refreshTurnstileToken();
 
   if (error) {
     handleAuthActionError(error, { action: "signup", email });
@@ -1834,23 +1826,15 @@ async function resendSignupEmail() {
     renderSyncPanel();
     return;
   }
-  requestTurnstileChallenge("resendSignup");
-  const captchaToken = await getTurnstileToken();
-  if (!captchaToken) {
-    return;
-  }
-
   setBusy(true);
   const { error } = await state.supabase.auth.resend({
     type: "signup",
     email,
     options: {
       emailRedirectTo: currentSiteUrl(),
-      captchaToken,
     },
   });
   setBusy(false);
-  refreshTurnstileToken();
 
   if (error) {
     handleAuthActionError(error, { action: "resendSignup", email });
@@ -1877,19 +1861,11 @@ async function requestPasswordReset() {
     renderSyncPanel();
     return;
   }
-  requestTurnstileChallenge("forgotPassword");
-  const captchaToken = await getTurnstileToken();
-  if (!captchaToken) {
-    return;
-  }
-
   setBusy(true);
   const { error } = await state.supabase.auth.resetPasswordForEmail(email, {
     redirectTo: currentSiteUrl(),
-    captchaToken,
   });
   setBusy(false);
-  refreshTurnstileToken();
 
   if (error) {
     handleAuthActionError(error, { action: "forgotPassword", email });
@@ -1948,29 +1924,12 @@ async function signInWithEmail() {
     return;
   }
 
-  let captchaToken = null;
-  if (hasTurnstileConfig()) {
-    requestTurnstileChallenge("signIn");
-    captchaToken = await getTurnstileToken();
-    if (!captchaToken) {
-      return;
-    }
-  }
-
   setBusy(true);
   const { error } = await state.supabase.auth.signInWithPassword({
     email,
     password,
-    ...(captchaToken
-      ? {
-          options: {
-            captchaToken,
-          },
-        }
-      : {}),
   });
   setBusy(false);
-  refreshTurnstileToken();
 
   if (error) {
     updateAuthUi(mapAuthError(error));
@@ -3401,9 +3360,7 @@ function renderSyncPanel() {
       ? state.usingLocalBackup
         ? "云端账号已经登录，但当前云端还没有数据，正在显示这台设备里的旧记录。"
         : "当前账号的数据会实时读写 Supabase。"
-      : hasTurnstileConfig()
-        ? "配置已经就绪，登录后每个画师只会看到自己的数据。"
-        : "云端配置已就绪，但还没配置 Cloudflare Turnstile；当前只能登录，不能注册、重发验证邮件或找回密码。";
+      : "配置已经就绪，登录后每个画师只会看到自己的数据。";
     elements.syncUser.innerHTML = state.user
       ? `<span class="chip status done">${escapeHtml(state.user.email)}</span>`
       : '<span class="chip status waiting">未登录</span>';
@@ -3433,16 +3390,9 @@ function renderSyncPanel() {
   elements.signUp.textContent = getAuthActionLabel("signup", signupCooldown);
   elements.resendSignup.textContent = getAuthActionLabel("resendSignup", resendCooldown);
   elements.forgotPassword.textContent = getAuthActionLabel("forgotPassword", forgotPasswordCooldown);
-  elements.turnstilePanel.classList.toggle("is-hidden", !showTurnstilePanel);
-  elements.turnstileWidget.classList.toggle(
-    "is-hidden",
-    !showTurnstilePanel || !hasTurnstileConfig() || state.turnstileStatus === "error",
-  );
-  elements.turnstileNote.textContent = getTurnstileNote();
-  elements.retryTurnstile?.classList.toggle(
-    "is-hidden",
-    state.turnstileStatus !== "error" && state.turnstileStatus !== "expired",
-  );
+  // Turnstile removed — always hide the panel
+  elements.turnstilePanel.classList.add("is-hidden");
+  elements.turnstileWidget.classList.add("is-hidden");
 
   elements.form.querySelectorAll("input, select, textarea, button").forEach((field) => {
     field.disabled = !canEditOrders || state.busy;
@@ -7861,7 +7811,9 @@ function setBusy(nextBusy) {
 }
 
 function hasTurnstileConfig() {
-  return Boolean(config.turnstileSiteKey);
+  // Turnstile CAPTCHA removed — Supabase server-side captcha is now disabled.
+  // Auth rate limits and email verification provide sufficient protection.
+  return false;
 }
 
 function hasCloudConfig() {
