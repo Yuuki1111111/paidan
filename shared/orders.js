@@ -73,6 +73,30 @@ export function normalizeMhsProjectAmountMode(value) {
   return MHS_PROJECT_AMOUNT_MODES.includes(value) ? value : MHS_PROJECT_AMOUNT_MODE_ARTIST;
 }
 
+export function calculateMhsProjectNetFromQuotedAmount(quotedAmount, feeRate) {
+  const quoted = normalizeMoneyValue(quotedAmount);
+  const rate = Math.min(Math.max(Number(feeRate) || 0, 0), 1);
+  if (!quoted) return 0;
+  if (rate <= 0) return quoted;
+  return roundMoney(Math.ceil(quoted / (1 + rate)), 2);
+}
+
+export function calculateMhsProjectQuotedAmountFromNet(netAmount, feeRate) {
+  const net = normalizeMoneyValue(netAmount);
+  const rate = Math.min(Math.max(Number(feeRate) || 0, 0), 1);
+  if (!net) return 0;
+  if (rate <= 0) return net;
+  return roundMoney(Math.floor(net * (1 + rate)), 2);
+}
+
+export function calculateMhsWindowNetFromListAmount(listAmount, feeRate) {
+  const list = normalizeMoneyValue(listAmount);
+  const rate = Math.min(Math.max(Number(feeRate) || 0, 0), 1);
+  if (!list) return 0;
+  if (rate <= 0) return list;
+  return roundMoney(Math.ceil(list * (1 - rate)), 2);
+}
+
 export function normalizeUsageType(value) {
   return USAGE_TYPES.includes(value) ? value : USAGE_TYPES[0];
 }
@@ -82,6 +106,20 @@ export function normalizeUsageRate(value, usageType = USAGE_TYPES[0]) {
   const parsed = Number(value || 0);
   if (!Number.isFinite(parsed) || parsed <= 0) return 0;
   return Math.min(parsed, 5);
+}
+
+export function normalizePriorityRate(value, priority = PRIORITIES[0]) {
+  if (priority === "普通") return 0;
+  const parsed = Number(value || 0);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.min(parsed, 5);
+}
+
+export function calculatePrioritySurcharge(order) {
+  const priority = order.priority || PRIORITIES[0];
+  const priorityRate = normalizePriorityRate(order.priorityRate, priority);
+  if (priority === "普通" || priorityRate <= 0) return 0;
+  return roundMoney(normalizeMoneyValue(order.amount) * priorityRate, 2);
 }
 
 export function parseUsageRateInput(value) {
@@ -176,6 +214,8 @@ export function normalizeOrder(input = {}, { fxSettings = {} } = {}) {
   const receivedAmount = normalizeMoneyValue(input.receivedAmount);
   const usageType = normalizeUsageType(input.usageType);
   const usageRate = normalizeUsageRate(input.usageRate, usageType);
+  const priority = PRIORITIES.includes(input.priority) ? input.priority : PRIORITIES[0];
+  const priorityRate = normalizePriorityRate(input.priorityRate, priority);
   const currency = normalizeCurrency(input.currency);
   const workHours = sanitizeWorkHours(input.workHours);
   const rawFeeRate = input.feeRate;
@@ -193,6 +233,8 @@ export function normalizeOrder(input = {}, { fxSettings = {} } = {}) {
   const refundAmount = normalizeMoneyValue(input.refundAmount);
   const fxRateSnapshot = normalizeFxRateSnapshot(input.fxRateSnapshot, currency, fxSettings);
   const calendarColor = normalizeCalendarColor(input.calendarColor);
+  const mhsProjectQuotedAmount =
+    feeMode === "mhs_project" ? normalizeMoneyValue(input.mhsProjectQuotedAmount) : 0;
   const exceptionPreviousStatus = input.exceptionPreviousStatus || null;
   const baseStatus = normalizeWorkflowStatus(input.status, STATUSES[0]);
   const status =
@@ -213,7 +255,9 @@ export function normalizeOrder(input = {}, { fxSettings = {} } = {}) {
     currency,
     fxRateSnapshot,
     calendarColor,
-    priority: PRIORITIES.includes(input.priority) ? input.priority : PRIORITIES[0],
+    mhsProjectQuotedAmount,
+    priority,
+    priorityRate,
     amount,
     receivedAmount,
     workHours,
@@ -245,7 +289,7 @@ export function calculateUsageSurcharge(order) {
 }
 
 export function calculateGrossAmount(order) {
-  return roundMoney(normalizeMoneyValue(order.amount) + calculateUsageSurcharge(order), 2);
+  return roundMoney(normalizeMoneyValue(order.amount) + calculateUsageSurcharge(order) + calculatePrioritySurcharge(order), 2);
 }
 
 export function calculateEffectiveAmount(order) {
@@ -263,27 +307,47 @@ export function calculateAdjustedFeeAmount(order) {
   const feeMode = normalizeFeeMode(order.feeMode);
 
   if (feeMode === "mhs_project") {
-    return roundMoney(Math.ceil(effectiveAmount * rate), 2);
+    const storedQuoted = normalizeMoneyValue(order?.mhsProjectQuotedAmount);
+    const quotedAmount =
+      storedQuoted > 0 &&
+      Math.abs(calculateMhsProjectNetFromQuotedAmount(storedQuoted, rate) - effectiveAmount) < 0.000001
+        ? storedQuoted
+        : calculateMhsProjectQuotedAmountFromNet(effectiveAmount, rate);
+    return roundMoney(Math.max(quotedAmount - effectiveAmount, 0), 2);
   }
   if (feeMode === "mhs_window") {
-    return roundMoney(Math.floor(effectiveAmount * rate), 2);
+    return roundMoney(Math.max(effectiveAmount - calculateMhsWindowNetFromListAmount(effectiveAmount, rate), 0), 2);
   }
   return roundMoney(effectiveAmount * rate, 2);
 }
 
 export function calculateAdjustedNetAmount(order) {
   const effectiveAmount = calculateEffectiveAmount(order);
-  if (normalizeFeeMode(order.feeMode) === "mhs_project") {
+  const feeMode = normalizeFeeMode(order.feeMode);
+  if (feeMode === "mhs_project") {
     return roundMoney(effectiveAmount, 2);
+  }
+  if (feeMode === "mhs_window") {
+    return calculateMhsWindowNetFromListAmount(effectiveAmount, Number(order.feeRate || 0));
   }
   return roundMoney(Math.max(effectiveAmount - calculateAdjustedFeeAmount(order), 0), 2);
 }
 
 export function calculateQuotedAmount(order) {
-  if (normalizeFeeMode(order.feeMode) === "mhs_project") {
-    return roundMoney(calculateEffectiveAmount(order) + calculateAdjustedFeeAmount(order), 2);
+  const feeMode = normalizeFeeMode(order.feeMode);
+  const effectiveAmount = calculateEffectiveAmount(order);
+  if (feeMode === "mhs_project") {
+    const rate = Number(order.feeRate || 0);
+    const storedQuoted = normalizeMoneyValue(order?.mhsProjectQuotedAmount);
+    if (
+      storedQuoted > 0 &&
+      Math.abs(calculateMhsProjectNetFromQuotedAmount(storedQuoted, rate) - effectiveAmount) < 0.000001
+    ) {
+      return storedQuoted;
+    }
+    return calculateMhsProjectQuotedAmountFromNet(effectiveAmount, rate);
   }
-  return roundMoney(calculateEffectiveAmount(order), 2);
+  return roundMoney(effectiveAmount, 2);
 }
 
 export function getOrderFxRate(order, settings = {}) {

@@ -4,6 +4,8 @@ export const FX_SETTINGS_KEY = "artist-commission-fx-settings-v1";
 export const LAST_TEMPLATE_KEY = "artist-commission-last-template-v1";
 export const BUSINESS_PRESET_KEY = "artist-commission-business-presets-v1";
 export const BUSINESS_TEMPLATE_KEY = "artist-commission-business-templates-v1";
+export const SOURCE_PRESET_KEY = "artist-commission-source-presets-v1";
+export const PRODUCTION_STAGE_PRESET_KEY = "artist-commission-stage-presets-v1";
 
 export const DEFAULT_BACKGROUND_HEX = "#f7efe4";
 export const DEFAULT_VIP_THRESHOLD = 3000;
@@ -64,7 +66,7 @@ export const CURRENCY_OPTIONS = [
 export const FEE_MODES = [
   { value: "standard", label: "默认按比例" },
   { value: "mhs_project", label: "米画师企划邀请（可切换到手/总价）" },
-  { value: "mhs_window", label: "米画师橱窗（满20减1）" },
+  { value: "mhs_window", label: "米画师橱窗（标价 × 0.95 向上取整）" },
 ];
 
 export const MHS_PROJECT_AMOUNT_MODE_ARTIST = "artist_net";

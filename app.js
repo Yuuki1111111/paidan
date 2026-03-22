@@ -2093,7 +2093,7 @@ async function loadRemoteBusinessTemplates() {
   const { data, error } = await state.supabase
     .from(BUSINESS_TEMPLATE_TABLE)
     .select(
-      "project_name,business_type,production_stage,source,fee_mode,fee_rate,usage_type,usage_rate,currency,fx_rate_snapshot,priority,amount,received_amount,payment_status,work_hours,status,exception_type,notes,updated_at",
+      "project_name,business_type,production_stage,source,fee_mode,fee_rate,usage_type,usage_rate,currency,fx_rate_snapshot,priority,amount,mhs_project_quoted_amount,received_amount,payment_status,work_hours,status,exception_type,notes,updated_at",
     )
     .eq("user_id", state.user.id);
   if (error) throw error;
@@ -2119,7 +2119,7 @@ async function upsertRemoteBusinessTemplates(templates) {
     .from(BUSINESS_TEMPLATE_TABLE)
     .upsert(payload, { onConflict: "user_id,business_type" })
     .select(
-      "project_name,business_type,production_stage,source,fee_mode,fee_rate,usage_type,usage_rate,currency,fx_rate_snapshot,priority,amount,received_amount,payment_status,work_hours,status,exception_type,notes,updated_at",
+      "project_name,business_type,production_stage,source,fee_mode,fee_rate,usage_type,usage_rate,currency,fx_rate_snapshot,priority,amount,mhs_project_quoted_amount,received_amount,payment_status,work_hours,status,exception_type,notes,updated_at",
     );
   if (error) throw error;
 
@@ -2627,6 +2627,7 @@ function buildOrderFromCurrentForm() {
     fxRateSnapshot: previousOrder?.fxRateSnapshot,
     priority: elements.priority.value,
     amount: parseBaseAmountFromDisplayedInput(elements.amount.value),
+    mhsProjectQuotedAmount: getFormMhsProjectQuotedAmount(),
     receivedAmount: Number(elements.receivedAmount.value),
     paymentStatus: elements.paymentStatus.value,
     startDate: elements.startDate.value,
@@ -4174,6 +4175,7 @@ function buildPendingTimelineDraftOrder(startDate, dueDate) {
       normalizeCurrency(elements.currency?.value) === "CNY" ? null : getConfiguredFxRate(elements.currency?.value),
     priority: elements.priority?.value || PRIORITIES[0],
     amount: parseBaseAmountFromDisplayedInput(elements.amount?.value || 0),
+    mhsProjectQuotedAmount: getFormMhsProjectQuotedAmount(),
     receivedAmount: Number(elements.receivedAmount?.value || 0),
     paymentStatus: elements.paymentStatus?.value || PAYMENT_STATUSES[0],
     startDate: nextRange.startDate,
@@ -5694,7 +5696,15 @@ function fillFormFromOrder(order, title, isEditing = false, scrollToForm = true)
   elements.usageRate.value = formatUsageRatePercent(order.usageRate);
   elements.currency.value = normalizeCurrency(order.currency);
   elements.priority.value = order.priority || PRIORITIES[0];
-  setDisplayedAmountFromBaseAmount(order.amount ?? 0, { feeMode: order.feeMode });
+  state.mhsProjectAmountMode =
+    normalizeFeeMode(order.feeMode) === "mhs_project" && normalizeMoneyValue(order.mhsProjectQuotedAmount) > 0
+      ? MHS_PROJECT_AMOUNT_MODE_CLIENT
+      : MHS_PROJECT_AMOUNT_MODE_ARTIST;
+  setDisplayedAmountFromBaseAmount(order.amount ?? 0, {
+    feeMode: order.feeMode,
+    amountMode: state.mhsProjectAmountMode,
+    storedQuotedAmount: order.mhsProjectQuotedAmount,
+  });
   elements.receivedAmount.value = formatMoney(order.receivedAmount ?? 0);
   elements.paymentStatus.value = normalizePaymentStatus(order);
   elements.startDate.value = order.startDate || "";
@@ -6845,6 +6855,7 @@ function normalizeBusinessTemplate(input = {}) {
     feeRate: input.feeRate,
     usageType: input.usageType,
     usageRate: input.usageRate,
+    mhsProjectQuotedAmount: input.mhsProjectQuotedAmount,
     currency: input.currency,
     fxRateSnapshot: input.fxRateSnapshot,
     priority: input.priority,
@@ -6869,6 +6880,7 @@ function normalizeBusinessTemplate(input = {}) {
     feeRate: normalizedOrder.feeRate,
     usageType: normalizedOrder.usageType,
     usageRate: normalizedOrder.usageRate,
+    mhsProjectQuotedAmount: normalizedOrder.mhsProjectQuotedAmount,
     currency: normalizedOrder.currency,
     fxRateSnapshot: normalizedOrder.fxRateSnapshot,
     priority: normalizedOrder.priority,
@@ -6916,6 +6928,7 @@ function buildBusinessTemplateFromForm() {
     feeRate: parseFeeRateInput(elements.feeRate?.value),
     usageType: elements.usageType?.value,
     usageRate: parseUsageRateInput(elements.usageRate?.value),
+    mhsProjectQuotedAmount: getFormMhsProjectQuotedAmount(),
     currency: elements.currency?.value,
     fxRateSnapshot:
       normalizeCurrency(elements.currency?.value) === "CNY"
@@ -6947,7 +6960,15 @@ function applyBusinessTemplateToForm(template) {
   elements.usageRate.value = formatUsageRatePercent(normalized.usageRate);
   elements.currency.value = normalized.currency;
   elements.priority.value = normalized.priority;
-  setDisplayedAmountFromBaseAmount(normalized.amount, { feeMode: normalized.feeMode });
+  state.mhsProjectAmountMode =
+    normalizeFeeMode(normalized.feeMode) === "mhs_project" && normalizeMoneyValue(normalized.mhsProjectQuotedAmount) > 0
+      ? MHS_PROJECT_AMOUNT_MODE_CLIENT
+      : MHS_PROJECT_AMOUNT_MODE_ARTIST;
+  setDisplayedAmountFromBaseAmount(normalized.amount, {
+    feeMode: normalized.feeMode,
+    amountMode: state.mhsProjectAmountMode,
+    storedQuotedAmount: normalized.mhsProjectQuotedAmount,
+  });
   elements.receivedAmount.value = formatMoney(normalized.receivedAmount);
   elements.paymentStatus.value = normalized.paymentStatus;
   elements.workHours.value = normalized.workHours > 0 ? formatHours(normalized.workHours) : "";
@@ -7190,7 +7211,11 @@ function getAmountInputValueKindForMode(
   feeMode = elements.feeMode?.value,
   amountMode = state.mhsProjectAmountMode,
 ) {
-  return normalizeFeeMode(feeMode) === "mhs_project" &&
+  const normalizedFeeMode = normalizeFeeMode(feeMode);
+  if (normalizedFeeMode === "mhs_window") {
+    return AMOUNT_INPUT_VALUE_KIND_QUOTED;
+  }
+  return normalizedFeeMode === "mhs_project" &&
     normalizeMhsProjectAmountMode(amountMode) === MHS_PROJECT_AMOUNT_MODE_CLIENT
     ? AMOUNT_INPUT_VALUE_KIND_QUOTED
     : AMOUNT_INPUT_VALUE_KIND_BASE;
@@ -7207,22 +7232,38 @@ function getCurrentFormFeeRate(
   return parseFeeRateInput(feeRateValue);
 }
 
-function calculateMhsProjectGrossFromQuotedAmount(quotedAmount, feeRate) {
+function calculateMhsProjectNetFromQuotedAmount(quotedAmount, feeRate) {
   const quoted = normalizeMoneyValue(quotedAmount);
   const rate = Math.min(Math.max(Number(feeRate) || 0, 0), 1);
   if (!quoted) return 0;
   if (rate <= 0) return quoted;
+  return roundMoney(Math.ceil(quoted / (1 + rate)), 2);
+}
 
-  const maxFee = Math.max(0, Math.ceil(quoted * rate) + 2);
-  for (let fee = 0; fee <= maxFee; fee += 1) {
-    const gross = roundMoney(quoted - fee, 2);
-    if (gross < 0) break;
-    if (Math.abs(roundMoney(gross + Math.ceil(gross * rate), 2) - quoted) < 0.000001) {
-      return gross;
-    }
-  }
+function calculateMhsProjectQuotedAmountFromNet(netAmount, feeRate) {
+  const net = normalizeMoneyValue(netAmount);
+  const rate = Math.min(Math.max(Number(feeRate) || 0, 0), 1);
+  if (!net) return 0;
+  if (rate <= 0) return net;
+  return roundMoney(Math.floor(net * (1 + rate)), 2);
+}
 
-  return roundMoney(Math.max(quoted - Math.ceil((quoted * rate) / (1 + rate)), 0), 2);
+function calculateMhsWindowNetFromListAmount(listAmount, feeRate) {
+  const list = normalizeMoneyValue(listAmount);
+  const rate = Math.min(Math.max(Number(feeRate) || 0, 0), 1);
+  if (!list) return 0;
+  if (rate <= 0) return list;
+  return roundMoney(Math.ceil(list * (1 - rate)), 2);
+}
+
+function getFormMhsProjectQuotedAmount({
+  feeMode = elements.feeMode?.value,
+  amountMode = state.mhsProjectAmountMode,
+  amountValue = elements.amount?.value,
+} = {}) {
+  if (normalizeFeeMode(feeMode) !== "mhs_project") return 0;
+  if (normalizeMhsProjectAmountMode(amountMode) !== MHS_PROJECT_AMOUNT_MODE_CLIENT) return 0;
+  return normalizeMoneyValue(amountValue);
 }
 
 function calculateBaseAmountFromGrossAmount(grossAmount, usageType, usageRate) {
@@ -7260,6 +7301,7 @@ function parseBaseAmountFromDisplayedInput(
   rawValue = elements.amount?.value,
   {
     valueKind = elements.amount?.dataset.valueKind || AMOUNT_INPUT_VALUE_KIND_BASE,
+    feeMode = elements.feeMode?.value,
     feeRate = getCurrentFormFeeRate(),
     usageType = elements.usageType?.value,
     usageRate = parseUsageRateInput(elements.usageRate?.value),
@@ -7271,13 +7313,17 @@ function parseBaseAmountFromDisplayedInput(
     return normalizedValue;
   }
 
-  const grossAmount = calculateMhsProjectGrossFromQuotedAmount(normalizedValue, feeRate);
+  const grossAmount =
+    normalizeFeeMode(feeMode) === "mhs_project"
+      ? calculateMhsProjectNetFromQuotedAmount(normalizedValue, feeRate)
+      : normalizedValue;
   return calculateBaseAmountFromGrossAmount(grossAmount, usageType, usageRate);
 }
 
 function buildPreviewOrderFromForm(overrides = {}) {
   const previewSource = normalizeSourceValue(overrides.source ?? elements.source?.value) || SOURCES[0];
   const previewFeeMode = normalizeFeeMode(overrides.feeMode ?? (elements.feeMode?.value || "standard"));
+  const previewAmountMode = normalizeMhsProjectAmountMode(overrides.amountMode ?? state.mhsProjectAmountMode);
   const previewCurrency = normalizeCurrency(overrides.currency ?? elements.currency?.value);
   const previewUsageType = normalizeUsageType(overrides.usageType ?? elements.usageType?.value);
   const previewUsageRate = normalizeUsageRate(
@@ -7293,7 +7339,8 @@ function buildPreviewOrderFromForm(overrides = {}) {
       valueKind:
         overrides.valueKind ??
         elements.amount?.dataset.valueKind ??
-        getAmountInputValueKindForMode(previewFeeMode, state.mhsProjectAmountMode),
+        getAmountInputValueKindForMode(previewFeeMode, previewAmountMode),
+      feeMode: previewFeeMode,
       feeRate: previewFeeRate,
       usageType: previewUsageType,
       usageRate: previewUsageRate,
@@ -7310,6 +7357,13 @@ function buildPreviewOrderFromForm(overrides = {}) {
       overrides.fxRateSnapshot ??
       (fxEnabled && previewCurrency !== "CNY" ? getConfiguredFxRate(previewCurrency) : null),
     amount: amountBase,
+    mhsProjectQuotedAmount:
+      overrides.mhsProjectQuotedAmount ??
+      getFormMhsProjectQuotedAmount({
+        feeMode: previewFeeMode,
+        amountMode: previewAmountMode,
+        amountValue: overrides.displayAmount ?? elements.amount?.value,
+      }),
     receivedAmount: overrides.receivedAmount ?? Number(elements.receivedAmount?.value || 0),
     paymentStatus: overrides.paymentStatus ?? elements.paymentStatus?.value ?? PAYMENT_STATUSES[0],
     workHours: overrides.workHours ?? sanitizeWorkHours(elements.workHours?.value),
@@ -7322,6 +7376,7 @@ function formatDisplayedAmountFromBaseAmount(
     feeMode = elements.feeMode?.value,
     amountMode = state.mhsProjectAmountMode,
     rawValue,
+    storedQuotedAmount,
   } = {},
 ) {
   const normalizedBaseAmount = normalizeMoneyValue(baseAmount);
@@ -7336,9 +7391,13 @@ function formatDisplayedAmountFromBaseAmount(
 
   const previewOrder = buildPreviewOrderFromForm({
     feeMode,
+    amountMode,
     amountBase: normalizedBaseAmount,
+    mhsProjectQuotedAmount: storedQuotedAmount,
   });
-  return formatMoney(calculateQuotedAmount(previewOrder));
+  return formatMoney(
+    normalizeFeeMode(feeMode) === "mhs_window" ? calculateEffectiveAmount(previewOrder) : calculateQuotedAmount(previewOrder),
+  );
 }
 
 function setDisplayedAmountFromBaseAmount(
@@ -7486,6 +7545,10 @@ function updateFeeModeUi() {
         : `总稿费${suffix}`;
 
   if (!elements.amountNote) return;
+  if (feeMode === "mhs_window") {
+    elements.amountNote.textContent = "这里填橱窗标价；画师到手按标价 × 0.95 向上取整。";
+    return;
+  }
   if (!isMhsProject) {
     elements.amountNote.textContent = "";
     return;
@@ -7495,7 +7558,7 @@ function updateFeeModeUi() {
   if (!hasAmountInput) {
     elements.amountNote.textContent =
       amountMode === MHS_PROJECT_AMOUNT_MODE_CLIENT
-        ? "切到邀请总价后，这里直接填单主支付总价；保存时会自动反算画师到手，已收金额仍填画师实收。"
+        ? "切到邀请总价后，这里直接填单主支付总价；保存时会按邀请总价 ÷ 1.05 向上取整反算画师到手，已收金额仍填画师实收。"
         : "切到画师到手后，这里填画师侧金额；系统会自动反推出单主支付总价。";
     return;
   }
@@ -7601,6 +7664,8 @@ function normalizeOrder(input = {}) {
   const source = normalizeSourceValue(input.source) || SOURCES[0];
   const feeMode = normalizeFeeMode(input.feeMode);
   const amount = normalizeMoneyValue(input.amount);
+  const mhsProjectQuotedAmount =
+    feeMode === "mhs_project" ? normalizeMoneyValue(input.mhsProjectQuotedAmount) : 0;
   const receivedAmount = normalizeMoneyValue(input.receivedAmount);
   const usageType = normalizeUsageType(input.usageType);
   const usageRate = normalizeUsageRate(input.usageRate, usageType);
@@ -7643,6 +7708,7 @@ function normalizeOrder(input = {}) {
     calendarColor,
     priority: input.priority || PRIORITIES[0],
     amount,
+    mhsProjectQuotedAmount,
     receivedAmount,
     workHours,
     paymentStatus: input.paymentStatus || inferPaymentStatus({ amount, receivedAmount, usageType, usageRate }),
@@ -7677,6 +7743,7 @@ function rowToOrder(row) {
     calendarColor: row.calendar_color,
     priority: row.priority,
     amount: row.amount,
+    mhsProjectQuotedAmount: row.mhs_project_quoted_amount,
     receivedAmount: row.received_amount,
     paymentStatus: row.payment_status,
     feeRate: row.fee_rate,
@@ -7712,6 +7779,7 @@ function orderToRow(order, userId) {
     calendar_color: normalizeCalendarColor(order.calendarColor),
     priority: order.priority,
     amount: normalizeMoneyValue(order.amount),
+    mhs_project_quoted_amount: normalizeMoneyValue(order.mhsProjectQuotedAmount),
     received_amount: normalizeMoneyValue(order.receivedAmount),
     payment_status: normalizePaymentStatus(order),
     fee_rate: Number(order.feeRate || 0),
@@ -7744,6 +7812,7 @@ function businessTemplateRowToRecord(row) {
     fxRateSnapshot: row.fx_rate_snapshot,
     priority: row.priority,
     amount: row.amount,
+    mhsProjectQuotedAmount: row.mhs_project_quoted_amount,
     receivedAmount: row.received_amount,
     paymentStatus: row.payment_status,
     workHours: row.work_hours,
@@ -7770,6 +7839,7 @@ function businessTemplateToRow(template, userId) {
     fx_rate_snapshot: normalizeFxRateSnapshot(normalized.fxRateSnapshot, normalized.currency),
     priority: normalized.priority,
     amount: normalizeMoneyValue(normalized.amount),
+    mhs_project_quoted_amount: normalizeMoneyValue(normalized.mhsProjectQuotedAmount),
     received_amount: normalizeMoneyValue(normalized.receivedAmount),
     payment_status: normalized.paymentStatus,
     work_hours: sanitizeWorkHours(normalized.workHours),
@@ -8023,27 +8093,47 @@ function calculateAdjustedFeeAmount(order) {
   const feeMode = normalizeFeeMode(order.feeMode);
 
   if (feeMode === "mhs_project") {
-    return roundMoney(Math.ceil(effectiveAmount * rate), 2);
+    const storedQuoted = normalizeMoneyValue(order?.mhsProjectQuotedAmount);
+    const quotedAmount =
+      storedQuoted > 0 &&
+      Math.abs(calculateMhsProjectNetFromQuotedAmount(storedQuoted, rate) - effectiveAmount) < 0.000001
+        ? storedQuoted
+        : calculateMhsProjectQuotedAmountFromNet(effectiveAmount, rate);
+    return roundMoney(Math.max(quotedAmount - effectiveAmount, 0), 2);
   }
   if (feeMode === "mhs_window") {
-    return roundMoney(Math.floor(effectiveAmount * rate), 2);
+    return roundMoney(Math.max(effectiveAmount - calculateMhsWindowNetFromListAmount(effectiveAmount, rate), 0), 2);
   }
   return roundMoney(effectiveAmount * rate, 2);
 }
 
 function calculateAdjustedNetAmount(order) {
   const effectiveAmount = calculateEffectiveAmount(order);
-  if (normalizeFeeMode(order.feeMode) === "mhs_project") {
+  const feeMode = normalizeFeeMode(order.feeMode);
+  if (feeMode === "mhs_project") {
     return roundMoney(effectiveAmount, 2);
+  }
+  if (feeMode === "mhs_window") {
+    return calculateMhsWindowNetFromListAmount(effectiveAmount, Number(order.feeRate || 0));
   }
   return roundMoney(Math.max(effectiveAmount - calculateAdjustedFeeAmount(order), 0), 2);
 }
 
 function calculateQuotedAmount(order) {
-  if (normalizeFeeMode(order.feeMode) === "mhs_project") {
-    return roundMoney(calculateEffectiveAmount(order) + calculateAdjustedFeeAmount(order), 2);
+  const feeMode = normalizeFeeMode(order.feeMode);
+  const effectiveAmount = calculateEffectiveAmount(order);
+  if (feeMode === "mhs_project") {
+    const rate = Number(order.feeRate || 0);
+    const storedQuoted = normalizeMoneyValue(order?.mhsProjectQuotedAmount);
+    if (
+      storedQuoted > 0 &&
+      Math.abs(calculateMhsProjectNetFromQuotedAmount(storedQuoted, rate) - effectiveAmount) < 0.000001
+    ) {
+      return storedQuoted;
+    }
+    return calculateMhsProjectQuotedAmountFromNet(effectiveAmount, rate);
   }
-  return roundMoney(calculateEffectiveAmount(order), 2);
+  return roundMoney(effectiveAmount, 2);
 }
 
 function calculateGrossAmountCny(order) {

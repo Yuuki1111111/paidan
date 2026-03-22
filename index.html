@@ -4,6 +4,33 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>画了么 | 小画师接稿排单台</title>
+    <script src="./capacitor.js"></script>
+    <script src="./env.js"></script>
+    <script>
+      (() => {
+        const cfg = window.APP_CONFIG || {};
+        const target = String(cfg.APP_TARGET || "").trim().toLowerCase();
+        const capacitor = window.Capacitor || null;
+        const nativeViaBridge =
+          typeof capacitor?.isNativePlatform === "function"
+            ? capacitor.isNativePlatform()
+            : typeof capacitor?.getPlatform === "function"
+              ? capacitor.getPlatform() !== "web"
+              : typeof capacitor?.platform === "string"
+                ? capacitor.platform !== "web"
+                : false;
+        const nativeViaProtocol = /^(capacitor|ionic):$/.test(window.location.protocol);
+        const isRootEntry =
+          window.location.pathname === "/" || /\/index\.html$/.test(window.location.pathname);
+
+        if (target === "appstore-ios" && (nativeViaBridge || nativeViaProtocol) && isRootEntry) {
+          const nextUrl = new URL("./mobile/index.html", window.location.href);
+          nextUrl.search = window.location.search;
+          nextUrl.hash = window.location.hash;
+          window.location.replace(nextUrl.toString());
+        }
+      })();
+    </script>
     <link rel="stylesheet" href="./landing.css" />
   </head>
   <body>
@@ -255,8 +282,6 @@
         </div>
       </footer>
     </div>
-
-    <script src="./env.js"></script>
     <script type="module" src="./landing.js"></script>
   </body>
 </html>

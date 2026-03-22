@@ -18,7 +18,7 @@ export const CLOUD_TABLES = {
 };
 
 const BUSINESS_TEMPLATE_SELECT =
-  "project_name,business_type,production_stage,source,fee_mode,fee_rate,usage_type,usage_rate,currency,fx_rate_snapshot,priority,amount,received_amount,payment_status,work_hours,status,exception_type,notes,updated_at";
+  "project_name,business_type,production_stage,source,fee_mode,fee_rate,usage_type,usage_rate,currency,fx_rate_snapshot,priority,amount,received_amount,payment_status,work_hours,status,exception_type,notes,mhs_project_quoted_amount,updated_at";
 
 export function hasCloudConfig(runtime) {
   return Boolean(runtime?.supabaseUrl && runtime?.supabaseAnonKey);
@@ -83,6 +83,7 @@ export function rowToOrder(row, { fxSettings } = {}) {
       calendarColor: row.calendar_color,
       priority: row.priority,
       amount: row.amount,
+      mhsProjectQuotedAmount: row.mhs_project_quoted_amount,
       receivedAmount: row.received_amount,
       paymentStatus: row.payment_status,
       feeRate: row.fee_rate,
@@ -120,6 +121,7 @@ export function orderToRow(order, userId) {
     calendar_color: normalizeCalendarColor(order.calendarColor),
     priority: order.priority,
     amount: normalizeMoneyValue(order.amount),
+    mhs_project_quoted_amount: normalizeMoneyValue(order.mhsProjectQuotedAmount),
     received_amount: normalizeMoneyValue(order.receivedAmount),
     payment_status: normalizePaymentStatus(order),
     fee_rate: Number(order.feeRate || 0),
@@ -152,6 +154,7 @@ export function businessTemplateRowToRecord(row, normalizeTemplate = (value) => 
     fxRateSnapshot: row.fx_rate_snapshot,
     priority: row.priority,
     amount: row.amount,
+    mhsProjectQuotedAmount: row.mhs_project_quoted_amount,
     receivedAmount: row.received_amount,
     paymentStatus: row.payment_status,
     workHours: row.work_hours,
@@ -177,6 +180,7 @@ export function businessTemplateToRow(template, userId) {
     fx_rate_snapshot: normalizeFxRateSnapshot(template.fxRateSnapshot, normalizeCurrency(template.currency)),
     priority: template.priority,
     amount: normalizeMoneyValue(template.amount),
+    mhs_project_quoted_amount: normalizeMoneyValue(template.mhsProjectQuotedAmount),
     received_amount: normalizeMoneyValue(template.receivedAmount),
     payment_status: normalizePaymentStatus(template),
     work_hours: sanitizeWorkHours(template.workHours),

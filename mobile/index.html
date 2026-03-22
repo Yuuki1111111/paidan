@@ -4,18 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#E8734A" />
-    <title>画了么 | Mobile</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <title>画了么</title>
+    <!-- Bundled CJK font for environments where PingFang SC is unavailable -->
     <link rel="stylesheet" href="./mobile.css" />
   </head>
   <body>
     <div id="mobile-app"></div>
     <input id="mobile-import-json" type="file" accept="application/json,.json" hidden />
     <script type="importmap">
-      { "imports": { "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2" } }
+      { "imports": { "@supabase/supabase-js": "../vendor/supabase.esm.js" } }
     </script>
+    <script src="../capacitor.js"></script>
     <script src="../env.js"></script>
     <script type="module" src="./mobile.js"></script>
   </body>

@@ -37,6 +37,40 @@ function readEnv(key) {
 rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
 
+copyFileSync(
+  join(root, "node_modules/@capacitor/core/dist/capacitor.js"),
+  join(dist, "capacitor.js"),
+);
+
+function escapeNonAsciiForJavaScript(text) {
+  let result = "";
+  for (const char of text) {
+    const codePoint = char.codePointAt(0);
+    if (codePoint <= 0x7f) {
+      result += char;
+      continue;
+    }
+    if (codePoint <= 0xffff) {
+      result += `\\u${codePoint.toString(16).padStart(4, "0")}`;
+      continue;
+    }
+    const normalized = codePoint - 0x10000;
+    const high = 0xd800 + (normalized >> 10);
+    const low = 0xdc00 + (normalized & 0x3ff);
+    result += `\\u${high.toString(16).padStart(4, "0")}\\u${low.toString(16).padStart(4, "0")}`;
+  }
+  return result;
+}
+
+function copyTextAsset(source, target, file) {
+  let text = readFileSync(source, "utf8");
+  if (/\.js$/i.test(file)) {
+    text = escapeNonAsciiForJavaScript(text);
+  }
+  const withBom = text.startsWith("\uFEFF") ? text : `\uFEFF${text}`;
+  writeFileSync(target, withBom, "utf8");
+}
+
 for (const file of [
   "index.html",
   "landing.css",
@@ -59,10 +93,18 @@ for (const file of [
   "mobile/index.html",
   "mobile/mobile.css",
   "mobile/mobile.js",
+  "mobile/fonts/SourceHanSansCN-Regular.otf",
+  "mobile/fonts/SourceHanSansCN-Medium.otf",
+  "vendor/supabase.esm.js",
 ]) {
   const target = join(dist, file);
   mkdirSync(dirname(target), { recursive: true });
-  copyFileSync(join(root, file), target);
+  const source = join(root, file);
+  if (/\.(?:js|css|html)$/i.test(file)) {
+    copyTextAsset(source, target, file);
+  } else {
+    copyFileSync(source, target);
+  }
 }
 
 const envConfig = {

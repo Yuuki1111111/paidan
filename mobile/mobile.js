@@ -30,12 +30,18 @@ import {
   MOBILE_TABS,
   PAYMENT_STATUSES,
   PRIORITIES,
+  PRODUCTION_STAGE_PRESET_KEY,
   SOURCES,
   SOURCE_OPTIONS,
+  SOURCE_PRESET_KEY,
   STORAGE_KEY,
   STATUSES,
   SUPPORTED_CURRENCIES,
   USAGE_TYPES,
+  AMOUNT_INPUT_VALUE_KIND_BASE,
+  AMOUNT_INPUT_VALUE_KIND_QUOTED,
+  MHS_PROJECT_AMOUNT_MODE_ARTIST,
+  MHS_PROJECT_AMOUNT_MODE_CLIENT,
 } from "../shared/constants.js";
 import {
   formatHours,
@@ -73,9 +79,21 @@ import {
   normalizeOrder,
   normalizePaymentStatus,
   normalizeProductionStageValue,
+  normalizeSourceValue,
   normalizeStageTimeline,
   normalizeUsageType,
+  normalizeUsageRate,
+  normalizePriorityRate,
+  normalizeMhsProjectAmountMode,
+  calculateAdjustedFeeAmount,
+  calculateAdjustedFeeAmountCny,
+  calculatePrioritySurcharge,
+  calculateQuotedAmount,
+  calculateQuotedAmountCny,
+  calculateMhsProjectNetFromQuotedAmount,
   canQuickEditWorkHours,
+  isHandledAbnormal,
+  isUnhandledAbnormal,
 } from "../shared/orders.js";
 
 const root = document.querySelector("#mobile-app");
@@ -85,11 +103,19 @@ const SHEET_TEMPLATE = "template";
 const SHEET_BUSINESS = "business";
 const SHEET_EXCEPTION = "exception";
 const SHEET_WORK_HOURS = "workHours";
+const SHEET_FEEDBACK = "feedback";
+const FEEDBACK_TABLE = "feedback";
+const FEEDBACK_CATEGORIES = ["Bug", "功能建议", "体验问题", "其他"];
+const FEEDBACK_COOLDOWN_MS = 60 * 1000;
+const FEEDBACK_COOLDOWN_KEY = "hualeme-feedback-last-submit-at";
 const CALENDAR_MODE_TAGS = "tags";
 const CALENDAR_MODE_TIMELINE = "timeline";
 const TIMELINE_CREATE_THRESHOLD_PX = 10;
 const TIMELINE_MOVE_THRESHOLD_PX = 10;
 const TIMELINE_DRAG_CLICK_SUPPRESS_MS = 240;
+const CALENDAR_LONG_PRESS_MS = 420;
+const CALENDAR_LONG_PRESS_MOVE_THRESHOLD_PX = 8;
+const CALENDAR_LONG_PRESS_CLICK_SUPPRESS_MS = 420;
 const CLIENT_INSIGHT_SETTINGS_KEY = "artist-commission-client-insight-settings-v1";
 const CALENDAR_DAY_MARKS_KEY = "artist-commission-calendar-day-marks-v1";
 const CALENDAR_DAY_MARK_REST = "rest";
@@ -102,10 +128,18 @@ let timelineCreateRangeSession = null;
 let timelineMoveSession = null;
 let timelineGlobalEventsBound = false;
 let timelineDragSuppressClickUntil = 0;
+let timelineAutoScrollRAF = null;
+let timelineAutoScrollSpeed = 0;
+const TIMELINE_AUTO_SCROLL_EDGE = 60;
+let calendarLongPressSuppressClickUntil = 0;
 let cloudRestorePromise = null;
 let cloudWriteQueue = Promise.resolve();
 let mobileTurnstileScriptPromise = null;
+let mobileTurnstileRetryTimer = 0;
 let authCooldownTicker = null;
+let settingsFeedbackRevealHandle = 0;
+const MOBILE_TURNSTILE_MAX_AUTO_RETRIES = 2;
+const MOBILE_TURNSTILE_RETRY_DELAY_MS = 1200;
 
 const state = {
   tab: "orders",
@@ -120,6 +154,8 @@ const state = {
   orderSortBy: "due",
   calendarMode: CALENDAR_MODE_TAGS,
   selectedCalendarDate: formatDateInput(new Date()),
+  calendarCreateMode: false,
+  calendarCreateStartDate: "",
   ordersFeedbackMessage: "",
   ordersFeedbackTone: "",
   createContextNote: "",
@@ -139,6 +175,8 @@ const state = {
   editingOrderId: "",
   confirmDeleteOrderId: "",
   customBusinessTypes: [],
+  customStages: [],
+  customSources: [],
   businessTemplates: {},
   lastTemplate: null,
   activeSheet: "",
@@ -146,14 +184,28 @@ const state = {
   templateDraftName: "",
   expandedTemplateKey: "",
   confirmDeleteTemplateKey: "",
+  confirmDeleteAccount: false,
   businessEditMode: false,
   businessAddOpen: false,
   businessDraftName: "",
+  sourceManagerOpen: false,
+  sourceDraftName: "",
   businessEditingValue: "",
   businessEditingDraft: "",
   workHoursEditorOrderId: "",
   workHoursEditorValue: "",
   expandedOrderId: "",
+  showPaywall: false,
+  proStatus: {
+    isActive: false,
+    entitlement: null,
+    products: null,
+    initialized: false,
+    productsLoading: false,
+    entitlementReady: false,  // true once StoreKit entitlement check completes (or skipped on web)
+    initError: "",  // "" = ok, "no_bridge" | "init_failed" | "products_failed"
+    productsErrorMessage: "",
+  },
   exceptionEditorOrderId: "",
   exceptionEditorHandled: false,
   exceptionEditorResolution: EXCEPTION_RESOLUTIONS[0] || "",
@@ -170,6 +222,7 @@ const state = {
   turnstileToken: "",
   turnstileWidgetId: null,
   turnstileErrorCode: "",
+  turnstileRetryCount: 0,
   supabase: null,
   session: null,
   user: null,
@@ -177,6 +230,14 @@ const state = {
   usingLocalBackup: false,
   settingsFeedbackMessage: "",
   settingsFeedbackTone: "",
+  // Feedback form state
+  feedbackCategory: "",
+  feedbackContent: "",
+  feedbackNickname: "",
+  feedbackContact: "",
+  feedbackSubmitting: false,
+  feedbackMessage: "",
+  feedbackMessageTone: "",
 };
 
 // ── Lucide SVG icon system (ISC license) ──
@@ -278,8 +339,315 @@ function getPaymentProgressPercent(order) {
   return gross > 0 ? Math.min((received / gross) * 100, 100) : 0;
 }
 
-if (initialAuthFlowType) {
-  savePreferredStorageMode("cloud", APP_RUNTIME);
+// ── StoreKit 2 / Pro subscription ──
+
+const PRO_PRODUCT_IDS = ["pro_monthly", "pro_yearly"];
+const PRO_CACHE_KEY = "huale_pro_status";
+
+function isProUser() {
+  if (!APP_RUNTIME.isNativeApp) return true;
+  return state.proStatus.isActive;
+}
+
+// Promise that resolves once StoreKit entitlement check completes.
+// On web, resolves immediately. All cloud-sync paths must await this
+// before reading proStatus to avoid race conditions at boot.
+let _entitlementReadyResolve;
+const _entitlementReadyPromise = APP_RUNTIME.isNativeApp
+  ? new Promise((resolve) => { _entitlementReadyResolve = resolve; })
+  : Promise.resolve();
+
+function waitForEntitlement() {
+  return _entitlementReadyPromise;
+}
+
+function markEntitlementReady() {
+  state.proStatus.entitlementReady = true;
+  if (_entitlementReadyResolve) {
+    _entitlementReadyResolve();
+    _entitlementReadyResolve = null;
+  }
+}
+
+function updateProFromEntitlements(entitlements) {
+  const proEnt = (entitlements || []).find(
+    (e) => e.productId === "pro_monthly" || e.productId === "pro_yearly",
+  );
+  state.proStatus.isActive = !!proEnt;
+  state.proStatus.entitlement = proEnt || null;
+  try {
+    localStorage.setItem(PRO_CACHE_KEY, proEnt ? "active" : "inactive");
+  } catch (_) {}
+}
+
+function getProExpiryText() {
+  const ent = state.proStatus.entitlement;
+  if (!ent) return "";
+  if (ent.expirationDate) {
+    const d = new Date(ent.expirationDate);
+    return `有效至 ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  return "已激活";
+}
+
+// Lazily create the Capacitor plugin proxy for our native StoreKit bridge
+let _storeKitPlugin = null;
+function getStoreKitPlugin() {
+  if (_storeKitPlugin) return _storeKitPlugin;
+  const cap = globalThis.Capacitor;
+  if (!cap?.registerPlugin) return null;
+  _storeKitPlugin = cap.registerPlugin("StoreKit");
+  return _storeKitPlugin;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+}
+
+function normalizeStoreKitError(err, fallback = "暂时无法读取套餐，请稍后重试。") {
+  const message = String(err?.message || err || "").trim();
+  if (!message) return fallback;
+  return message;
+}
+
+async function loadStoreKitProducts({ retries = 2, renderOnFinish = true } = {}) {
+  const SK = getStoreKitPlugin();
+  if (!SK) {
+    state.proStatus.initError = "no_bridge";
+    state.proStatus.products = null;
+    state.proStatus.productsLoading = false;
+    state.proStatus.productsErrorMessage = "购买服务不可用";
+    state.proStatus.initialized = true;
+    if (renderOnFinish) render();
+    return;
+  }
+
+  state.proStatus.productsLoading = true;
+  state.proStatus.initError = "";
+  state.proStatus.productsErrorMessage = "";
+  if (renderOnFinish) render();
+
+  let lastError = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const { products } = await SK.getProducts({ productIds: PRO_PRODUCT_IDS });
+      if (products && products.length > 0) {
+        state.proStatus.products = products;
+        state.proStatus.initError = "";
+        state.proStatus.productsErrorMessage = "";
+        state.proStatus.productsLoading = false;
+        state.proStatus.initialized = true;
+        if (renderOnFinish) render();
+        return;
+      }
+      lastError = new Error("未读取到可用套餐");
+    } catch (err) {
+      lastError = err;
+    }
+    if (attempt < retries) {
+      await delay(250 * (attempt + 1));
+    }
+  }
+
+  console.error("[StoreKit] load products failed:", lastError);
+  state.proStatus.products = null;
+  state.proStatus.initError = "products_failed";
+  state.proStatus.productsErrorMessage = normalizeStoreKitError(lastError);
+  state.proStatus.productsLoading = false;
+  state.proStatus.initialized = true;
+  if (renderOnFinish) render();
+}
+
+async function initializeStoreKit() {
+  if (!APP_RUNTIME.isNativeApp) return;
+  const SK = getStoreKitPlugin();
+  if (!SK) {
+    console.warn("[StoreKit] Capacitor bridge not available");
+    state.proStatus.initError = "no_bridge";
+    state.proStatus.initialized = true;
+    state.proStatus.productsLoading = false;
+    state.proStatus.productsErrorMessage = "购买服务不可用";
+    markEntitlementReady();
+    return;
+  }
+  try {
+    // 1) Load current entitlements (device-local, fast)
+    const { entitlements } = await SK.getCurrentEntitlements();
+    updateProFromEntitlements(entitlements);
+    // Entitlement truth is now known — unblock cloud sync decisions
+    markEntitlementReady();
+
+    // 3) Listen for transaction updates (renewals, refunds, etc.)
+    SK.addListener("entitlementUpdate", (data) => {
+      updateProFromEntitlements(data?.entitlements);
+      render();
+    });
+
+    await loadStoreKitProducts({ retries: 3, renderOnFinish: false });
+    render();
+  } catch (err) {
+    console.error("[StoreKit] init failed:", err);
+    state.proStatus.initError = "init_failed";
+    state.proStatus.productsLoading = false;
+    state.proStatus.productsErrorMessage = normalizeStoreKitError(err, "StoreKit 初始化失败");
+    // No localStorage fallback — entitlement status stays false (not Pro)
+    state.proStatus.initialized = true;
+    markEntitlementReady();
+    render();
+  }
+}
+
+function openProPaywall() {
+  state.showPaywall = true;
+  render();
+}
+
+function closeProPaywall() {
+  state.showPaywall = false;
+  render();
+}
+
+async function retryLoadProducts() {
+  const SK = getStoreKitPlugin();
+  if (!SK) return;
+  try {
+    const { entitlements } = await SK.getCurrentEntitlements();
+    updateProFromEntitlements(entitlements);
+  } catch (err) {
+    console.error("[StoreKit] entitlement refresh failed:", err);
+  }
+  await loadStoreKitProducts({ retries: 3, renderOnFinish: true });
+}
+
+function getProductById(id) {
+  return (state.proStatus.products || []).find((p) => p.id === id) || null;
+}
+
+function renderPaywallProductsArea() {
+  const { initialized, products, initError, productsLoading } = state.proStatus;
+
+  // 1) Still loading
+  if (!initialized || productsLoading) {
+    return `
+      <div class="mobile-paywall-products">
+        <button class="mobile-paywall-product is-disabled" disabled>加载中…</button>
+      </div>
+    `;
+  }
+
+  // 2) No bridge
+  if (initError === "no_bridge") {
+    return `
+      <div class="mobile-paywall-products">
+        <div class="mobile-paywall-status-msg">购买服务不可用</div>
+      </div>
+    `;
+  }
+
+  // 3) Products failed / empty
+  if (!products || initError === "init_failed" || initError === "products_failed") {
+    return `
+      <div class="mobile-paywall-products">
+        <div class="mobile-paywall-status-msg">${escapeHtml(state.proStatus.productsErrorMessage || "暂时无法读取套餐，请稍后重试")}</div>
+        <button class="mobile-paywall-product" data-action="retry-load-products">
+          <span class="mobile-paywall-product-label">重试加载套餐</span>
+          <span class="mobile-paywall-product-price">${ICONS.refresh(16)}</span>
+        </button>
+      </div>
+    `;
+  }
+
+  // 4) Normal — render product buttons
+  const yearly = getProductById("pro_yearly");
+  const monthly = getProductById("pro_monthly");
+  return `
+    <div class="mobile-paywall-products">
+      ${renderPaywallProductButton("pro_yearly", yearly)}
+      ${renderPaywallProductButton("pro_monthly", monthly)}
+    </div>
+  `;
+}
+
+function renderPaywallProductButton(productId, product) {
+  if (!product) {
+    const label = productId === "pro_yearly" ? "年付" : "月付";
+    return `<button class="mobile-paywall-product is-disabled" disabled>${label}暂不可用</button>`;
+  }
+  const isFeatured = productId === "pro_yearly";
+  const label = isFeatured ? "年付 · 最划算" : "月付";
+  return `
+    <button class="mobile-paywall-product${isFeatured ? " is-featured" : ""}" data-action="purchase" data-product-id="${product.id}">
+      <span class="mobile-paywall-product-label">${label}</span>
+      <span class="mobile-paywall-product-price">${product.displayPrice}${isFeatured ? "/年" : "/月"}</span>
+    </button>
+  `;
+}
+
+function renderPaywallOverlay() {
+  if (!state.showPaywall) return "";
+  return `
+    <div class="mobile-paywall-overlay" data-action="close-paywall">
+      <div class="mobile-paywall-card" onclick="event.stopPropagation()">
+        <button class="mobile-paywall-close" data-action="close-paywall">${ICONS.x(20)}</button>
+        <div class="mobile-paywall-hero">
+          <div class="mobile-paywall-icon">${ICONS.cloud(40)}</div>
+          <h2 class="mobile-paywall-title">画了么 Pro</h2>
+          <p class="mobile-paywall-subtitle">解锁云端同步，多设备无缝协作</p>
+        </div>
+        <ul class="mobile-paywall-features">
+          <li>${ICONS.check(16)}<span>云端数据实时同步</span></li>
+          <li>${ICONS.check(16)}<span>多设备无缝切换</span></li>
+          <li>${ICONS.check(16)}<span>自动云端备份</span></li>
+        </ul>
+        ${renderPaywallProductsArea()}
+        <button class="mobile-paywall-restore" data-action="restore-purchases">恢复购买</button>
+      </div>
+    </div>
+  `;
+}
+
+async function handlePurchase(productId) {
+  const SK = getStoreKitPlugin();
+  if (!SK) { setSettingsFeedback("购买服务不可用", "error"); render(); return; }
+  try {
+    const result = await SK.purchase({ productId });
+    if (result.userCancelled) return;
+    if (result.pending) {
+      setSettingsFeedback("购买正在处理中，请稍候。");
+      render();
+      return;
+    }
+    if (result.success) {
+      updateProFromEntitlements(result.entitlements);
+      state.showPaywall = false;
+      if (isProUser()) {
+        setSettingsFeedback("Pro 已激活！现在可以开启云同步了。");
+      }
+      render();
+    }
+  } catch (err) {
+    setSettingsFeedback("购买失败：" + (err?.message || "未知错误"), "error");
+    render();
+  }
+}
+
+async function handleRestorePurchases() {
+  const SK = getStoreKitPlugin();
+  if (!SK) { setSettingsFeedback("购买服务不可用", "error"); render(); return; }
+  try {
+    const { entitlements } = await SK.restorePurchases();
+    updateProFromEntitlements(entitlements);
+    if (isProUser()) {
+      state.showPaywall = false;
+      setSettingsFeedback("Pro 已恢复！");
+    } else {
+      setSettingsFeedback("未找到有效的购买记录。", "error");
+    }
+    render();
+  } catch (err) {
+    setSettingsFeedback("恢复失败，请重试。", "error");
+    render();
+  }
 }
 
 refreshLocalData();
@@ -287,7 +655,11 @@ render();
 bindTimelineGlobalEvents();
 bindStaticInputs();
 syncAuthCooldownTicker();
+// StoreKit must resolve entitlement BEFORE cloud workspace decides to sync.
+// initializeStoreKit fires immediately; initializeCloudWorkspace awaits entitlement.
+void initializeStoreKit();
 void initializeCloudWorkspace();
+listenDeepLinkCallback();
 window.addEventListener("storage", () => {
   refreshLocalData();
   render();
@@ -300,7 +672,10 @@ function render() {
       <main class="mobile-content">${renderCurrentTab()}</main>
     </div>
     ${renderSheetOverlay()}
+    ${renderPaywallOverlay()}
     ${renderTabbar()}
+    <div class="mobile-calendar-context-overlay" id="mobile-ctx-overlay" hidden></div>
+    <div class="mobile-calendar-context-menu" id="mobile-ctx-menu" hidden></div>
   `;
 
   bindEvents();
@@ -329,6 +704,25 @@ function setBusy(nextBusy) {
   render();
 }
 
+function scheduleSettingsFeedbackReveal() {
+  if (state.tab !== "settings") return;
+  const raf = globalThis.requestAnimationFrame || ((callback) => globalThis.setTimeout(callback, 0));
+  if (
+    settingsFeedbackRevealHandle &&
+    typeof globalThis.cancelAnimationFrame === "function" &&
+    raf === globalThis.requestAnimationFrame
+  ) {
+    globalThis.cancelAnimationFrame(settingsFeedbackRevealHandle);
+  }
+  settingsFeedbackRevealHandle = raf(() => {
+    settingsFeedbackRevealHandle = 0;
+    root.querySelector("[data-settings-feedback]")?.scrollIntoView({
+      block: "nearest",
+      behavior: "smooth",
+    });
+  });
+}
+
 function ensureSupabaseClient() {
   if (!hasCloudConfig(APP_RUNTIME)) {
     return null;
@@ -340,11 +734,13 @@ function ensureSupabaseClient() {
 
   state.supabase = createSupabaseBrowserClient(APP_RUNTIME);
   state.supabase.auth.onAuthStateChange((event, session) => {
+    const prevUserId = state.user?.id;
     state.session = session;
     state.user = session?.user ?? null;
     if (event === "PASSWORD_RECOVERY") {
       state.recoveryMode = true;
-      persistMode("cloud");
+      // Auth recovery flow works regardless of Pro — don't auto-set cloud mode.
+      // User can enable cloud sync manually after resetting password if they have Pro.
       setSettingsFeedback("已进入重置密码流程，请输入新密码。");
       render();
       return;
@@ -368,7 +764,12 @@ async function initializeCloudWorkspace() {
     }
     state.session = data.session;
     state.user = data.session?.user ?? null;
-    if (initialAuthFlowType) {
+
+    // Wait for StoreKit entitlement to be known before making cloud decisions.
+    // On web this resolves immediately; on native it waits for getCurrentEntitlements().
+    await waitForEntitlement();
+
+    if (initialAuthFlowType && isProUser()) {
       persistMode("cloud");
     }
     if (isCloudModeEnabled() && state.user) {
@@ -387,6 +788,66 @@ async function initializeCloudWorkspace() {
   render();
 }
 
+// ── Deep link callback (hualeme://auth-callback) ──
+function listenDeepLinkCallback() {
+  if (!APP_RUNTIME.isNativeApp) return;
+  const cap = globalThis.Capacitor;
+  if (!cap?.Plugins?.App) return;
+  const appPlugin = cap.Plugins.App;
+  // Check if app was launched via deep link
+  appPlugin.getLaunchUrl?.().then((result) => {
+    if (result?.url) handleDeepLinkUrl(result.url);
+  }).catch(() => {});
+  // Listen for deep link opens while app is running
+  appPlugin.addListener("appUrlOpen", (data) => {
+    if (data?.url) handleDeepLinkUrl(data.url);
+  });
+  appPlugin.addListener("appStateChange", (data) => {
+    if (!data?.isActive) return;
+    if (state.proStatus.products || state.proStatus.productsLoading) return;
+    void loadStoreKitProducts({ retries: 1, renderOnFinish: true });
+  });
+}
+
+function handleDeepLinkUrl(urlString) {
+  try {
+    const url = new URL(urlString);
+    // Supabase puts tokens in the URL fragment: #access_token=...&refresh_token=...
+    const fragment = url.hash?.replace(/^#/, "");
+    const search = url.search?.replace(/^\?/, "");
+    const params = new URLSearchParams(fragment || search || "");
+    const accessToken = params.get("access_token");
+    const refreshToken = params.get("refresh_token");
+    const type = params.get("type");
+    if (accessToken && refreshToken) {
+      const client = ensureSupabaseClient();
+      if (client) {
+        client.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        }).then(({ error }) => {
+          if (error) {
+            console.error("[DeepLink] setSession failed:", error.message);
+            setSettingsFeedback("链接验证失败，请重试。", "error");
+            render();
+          }
+          // onAuthStateChange will handle successful session
+        }).catch((err) => {
+          console.error("[DeepLink] setSession error:", err);
+        });
+      }
+    } else if (type) {
+      // Recovery/signup confirmation without explicit tokens — nudge Supabase to check
+      const client = ensureSupabaseClient();
+      if (client) {
+        client.auth.getSession().catch(() => {});
+      }
+    }
+  } catch (err) {
+    console.error("[DeepLink] parse error:", err);
+  }
+}
+
 async function handleCloudSessionChanged() {
   if (!isCloudModeEnabled() || !state.user) {
     state.usingLocalBackup = false;
@@ -398,11 +859,17 @@ async function handleCloudSessionChanged() {
     return;
   }
 
+  // Ensure entitlement is known before attempting cloud sync
+  await waitForEntitlement();
   await syncCloudWorkspaceOnLogin();
 }
 
 async function syncCloudWorkspaceOnLogin({ silent = false } = {}) {
   if (!state.supabase || !state.user) {
+    return;
+  }
+  // On native, cloud sync requires active Pro subscription (StoreKit truth only)
+  if (!isProUser()) {
     return;
   }
 
@@ -531,6 +998,11 @@ async function setStorageMode(nextMode) {
     return;
   }
 
+  if (nextMode === "cloud" && !isProUser()) {
+    openProPaywall();
+    return;
+  }
+
   persistMode(nextMode);
   refreshLocalData();
 
@@ -553,7 +1025,7 @@ async function setStorageMode(nextMode) {
 
 function getRequiredTurnstileToken(actionLabel) {
   if (!hasTurnstileConfig()) {
-    setSettingsFeedback(`当前项目还没开启人机验证，移动端暂时不能${actionLabel}。请先去网页端完成。`, "error");
+    setSettingsFeedback(`当前项目还没开启人机验证，移动端暂时不能${actionLabel}。请先去网页端完成。`, "error", { reveal: true });
     render();
     return "";
   }
@@ -566,15 +1038,23 @@ function getRequiredTurnstileToken(actionLabel) {
   setSettingsFeedback(
     state.turnstileStatus === "error" ? getMobileTurnstileErrorMessage() : `请先完成人机验证，再${actionLabel}。`,
     "error",
+    { reveal: true },
   );
   render();
   return "";
 }
 
+function getOptionalTurnstileToken(actionLabel) {
+  if (!hasTurnstileConfig()) {
+    return "";
+  }
+  return getRequiredTurnstileToken(actionLabel);
+}
+
 async function signUpWithPasswordMobile() {
   const client = ensureSupabaseClient();
   if (!client) {
-    setSettingsFeedback("当前还没配置 Supabase 环境变量，暂时不能注册。", "error");
+    setSettingsFeedback("当前还没配置 Supabase 环境变量，暂时不能注册。", "error", { reveal: true });
     render();
     return;
   }
@@ -582,18 +1062,18 @@ async function signUpWithPasswordMobile() {
   const email = String(state.authEmail || "").trim();
   const password = String(state.authPassword || "").trim();
   if (!email || !password) {
-    setSettingsFeedback("先填写邮箱和密码。", "error");
+    setSettingsFeedback("先填写邮箱和密码。", "error", { reveal: true });
     render();
     return;
   }
   if (hasAuthCooldown("signup", email)) {
-    setSettingsFeedback(getAuthCooldownMessage("signup", email), "error");
+    setSettingsFeedback(getAuthCooldownMessage("signup", email), "error", { reveal: true });
     render();
     return;
   }
 
-  const captchaToken = getRequiredTurnstileToken("注册");
-  if (!captchaToken) {
+  const captchaToken = getOptionalTurnstileToken("注册");
+  if (hasTurnstileConfig() && !captchaToken) {
     return;
   }
 
@@ -604,7 +1084,7 @@ async function signUpWithPasswordMobile() {
       password,
       options: {
         emailRedirectTo: getAuthRedirectUrl(currentSiteUrl()),
-        captchaToken,
+        ...(captchaToken ? { captchaToken } : {}),
       },
     });
     if (error) {
@@ -612,11 +1092,11 @@ async function signUpWithPasswordMobile() {
     }
     state.authPassword = "";
     if (data.session) {
-      setSettingsFeedback("注册成功，已自动登录。");
+      setSettingsFeedback("注册成功，已自动登录。", "success", { reveal: true });
     } else {
       startAuthCooldown("signup", email);
       startAuthCooldown("resendSignup", email);
-      setSettingsFeedback("注册成功，请去邮箱点验证链接。60 秒内先别重复点注册；没收到再点“重发验证邮件”。");
+      setSettingsFeedback("注册成功，请去邮箱点验证链接。60 秒内先别重复点注册；没收到再点“重发验证邮件”。", "success", { reveal: true });
     }
   } catch (error) {
     handleAuthActionError(error, { action: "signup", email });
@@ -629,25 +1109,25 @@ async function signUpWithPasswordMobile() {
 async function resendSignupEmailMobile() {
   const client = ensureSupabaseClient();
   if (!client) {
-    setSettingsFeedback("当前还没配置 Supabase 环境变量，暂时不能重发验证邮件。", "error");
+    setSettingsFeedback("当前还没配置 Supabase 环境变量，暂时不能重发验证邮件。", "error", { reveal: true });
     render();
     return;
   }
 
   const email = String(state.authEmail || "").trim();
   if (!email) {
-    setSettingsFeedback("先填写要验证的邮箱。", "error");
+    setSettingsFeedback("先填写要验证的邮箱。", "error", { reveal: true });
     render();
     return;
   }
   if (hasAuthCooldown("resendSignup", email)) {
-    setSettingsFeedback(getAuthCooldownMessage("resendSignup", email), "error");
+    setSettingsFeedback(getAuthCooldownMessage("resendSignup", email), "error", { reveal: true });
     render();
     return;
   }
 
-  const captchaToken = getRequiredTurnstileToken("重发验证邮件");
-  if (!captchaToken) {
+  const captchaToken = getOptionalTurnstileToken("重发验证邮件");
+  if (hasTurnstileConfig() && !captchaToken) {
     return;
   }
 
@@ -658,7 +1138,7 @@ async function resendSignupEmailMobile() {
       email,
       options: {
         emailRedirectTo: getAuthRedirectUrl(currentSiteUrl()),
-        captchaToken,
+        ...(captchaToken ? { captchaToken } : {}),
       },
     });
     if (error) {
@@ -666,7 +1146,7 @@ async function resendSignupEmailMobile() {
     }
     startAuthCooldown("signup", email);
     startAuthCooldown("resendSignup", email);
-    setSettingsFeedback("验证邮件已重新发送，请检查邮箱。60 秒内先别重复点。");
+    setSettingsFeedback("验证邮件已重新发送，请检查邮箱。60 秒内先别重复点。", "success", { reveal: true });
   } catch (error) {
     handleAuthActionError(error, { action: "resendSignup", email });
   } finally {
@@ -678,25 +1158,25 @@ async function resendSignupEmailMobile() {
 async function requestPasswordResetMobile() {
   const client = ensureSupabaseClient();
   if (!client) {
-    setSettingsFeedback("当前还没配置 Supabase 环境变量，暂时不能重置密码。", "error");
+    setSettingsFeedback("当前还没配置 Supabase 环境变量，暂时不能重置密码。", "error", { reveal: true });
     render();
     return;
   }
 
   const email = String(state.authEmail || "").trim();
   if (!email) {
-    setSettingsFeedback("先填写注册邮箱，我才能发重置邮件。", "error");
+    setSettingsFeedback("先填写注册邮箱，我才能发重置邮件。", "error", { reveal: true });
     render();
     return;
   }
   if (hasAuthCooldown("forgotPassword", email)) {
-    setSettingsFeedback(getAuthCooldownMessage("forgotPassword", email), "error");
+    setSettingsFeedback(getAuthCooldownMessage("forgotPassword", email), "error", { reveal: true });
     render();
     return;
   }
 
-  const captchaToken = getRequiredTurnstileToken("发送重置邮件");
-  if (!captchaToken) {
+  const captchaToken = getOptionalTurnstileToken("发送重置邮件");
+  if (hasTurnstileConfig() && !captchaToken) {
     return;
   }
 
@@ -704,13 +1184,13 @@ async function requestPasswordResetMobile() {
   try {
     const { error } = await client.auth.resetPasswordForEmail(email, {
       redirectTo: getAuthRedirectUrl(currentSiteUrl()),
-      captchaToken,
+      ...(captchaToken ? { captchaToken } : {}),
     });
     if (error) {
       throw error;
     }
     startAuthCooldown("forgotPassword", email);
-    setSettingsFeedback("重置密码邮件已发送，请去邮箱点开链接后回到当前页面。60 秒内先别重复点。");
+    setSettingsFeedback("重置密码邮件已发送，请去邮箱点开链接后回到当前页面。60 秒内先别重复点。", "success", { reveal: true });
   } catch (error) {
     handleAuthActionError(error, { action: "forgotPassword", email });
   } finally {
@@ -722,7 +1202,7 @@ async function requestPasswordResetMobile() {
 async function completePasswordResetMobile() {
   const client = ensureSupabaseClient();
   if (!client || !state.recoveryMode) {
-    setSettingsFeedback("当前不在重置密码流程里。", "error");
+    setSettingsFeedback("当前不在重置密码流程里。", "error", { reveal: true });
     render();
     return;
   }
@@ -730,12 +1210,12 @@ async function completePasswordResetMobile() {
   const password = String(state.authResetPassword || "").trim();
   const confirmPassword = String(state.authResetPasswordConfirm || "").trim();
   if (password.length < 6) {
-    setSettingsFeedback("新密码至少 6 位。", "error");
+    setSettingsFeedback("新密码至少 6 位。", "error", { reveal: true });
     render();
     return;
   }
   if (password !== confirmPassword) {
-    setSettingsFeedback("两次输入的新密码不一致。", "error");
+    setSettingsFeedback("两次输入的新密码不一致。", "error", { reveal: true });
     render();
     return;
   }
@@ -750,9 +1230,9 @@ async function completePasswordResetMobile() {
     state.authResetPassword = "";
     state.authResetPasswordConfirm = "";
     clearAuthRedirect();
-    setSettingsFeedback("密码已更新，可以直接继续使用。");
+    setSettingsFeedback("密码已更新，可以直接继续使用。", "success", { reveal: true });
   } catch (error) {
-    setSettingsFeedback(mapAuthError(error), "error");
+    setSettingsFeedback(mapAuthError(error), "error", { reveal: true });
   } finally {
     setBusy(false);
   }
@@ -761,7 +1241,7 @@ async function completePasswordResetMobile() {
 async function signInWithPasswordMobile() {
   const client = ensureSupabaseClient();
   if (!client) {
-    setSettingsFeedback("当前还没配置 Supabase 环境变量，暂时不能登录。", "error");
+    setSettingsFeedback("当前还没配置 Supabase 环境变量，暂时不能登录。", "error", { reveal: true });
     render();
     return;
   }
@@ -770,7 +1250,7 @@ async function signInWithPasswordMobile() {
   const password = String(state.authPassword || "").trim();
 
   if (!email || !password) {
-    setSettingsFeedback("先填写邮箱和密码。", "error");
+    setSettingsFeedback("先填写邮箱和密码。", "error", { reveal: true });
     render();
     return;
   }
@@ -780,6 +1260,7 @@ async function signInWithPasswordMobile() {
     setSettingsFeedback(
       state.turnstileStatus === "error" ? getMobileTurnstileErrorMessage() : "请先完成人机验证，再继续登录。",
       "error",
+      { reveal: true },
     );
     render();
     return;
@@ -803,9 +1284,9 @@ async function signInWithPasswordMobile() {
     }
     state.authPassword = "";
     state.recoveryMode = false;
-    setSettingsFeedback(state.mode === "cloud" ? "登录成功，正在拉取云端数据。" : "登录成功。切到账号同步后会拉取云端数据。");
+    setSettingsFeedback(state.mode === "cloud" ? "登录成功，正在拉取云端数据。" : "登录成功。切到账号同步后会拉取云端数据。", "success", { reveal: true });
   } catch (error) {
-    setSettingsFeedback(mapAuthError(error), "error");
+    setSettingsFeedback(mapAuthError(error), "error", { reveal: true });
   } finally {
     resetMobileTurnstile();
     setBusy(false);
@@ -848,11 +1329,7 @@ async function deleteAccountMobile() {
     return;
   }
 
-  const confirmed = window.confirm("确认删除当前账号吗？这会删除云端稿件、模板、业务和登录账号，不能恢复。");
-  if (!confirmed) {
-    return;
-  }
-
+  state.confirmDeleteAccount = false;
   setBusy(true);
   try {
     const { error } = await state.supabase.functions.invoke("delete-account", {
@@ -933,6 +1410,9 @@ async function syncCloudNow() {
 }
 
 function hasTurnstileConfig() {
+  // Supabase server-side has Turnstile captcha enforcement enabled.
+  // Even native apps MUST send a valid captchaToken or the server will reject
+  // auth requests.  Cloudflare Turnstile "managed" mode works in WKWebView.
   return Boolean(APP_RUNTIME.turnstileSiteKey);
 }
 
@@ -973,6 +1453,43 @@ function getMobileTurnstileErrorMessage() {
     return `人机验证加载失败（${errorCode}），请稍后再试或先用网页端登录。`;
   }
   return "人机验证加载失败，请稍后再试或先用网页端登录。";
+}
+
+function isRetryableTurnstileError(errorCode) {
+  const code = String(errorCode || "").trim();
+  return code.startsWith("300") || code.startsWith("600");
+}
+
+function scheduleMobileTurnstileRetry(errorCode) {
+  const code = String(errorCode || "").trim();
+  if (!isRetryableTurnstileError(code)) return false;
+  if (state.turnstileWidgetId === null || !window.turnstile?.reset) return false;
+  if (state.turnstileRetryCount >= MOBILE_TURNSTILE_MAX_AUTO_RETRIES) return false;
+
+  if (mobileTurnstileRetryTimer) {
+    globalThis.clearTimeout(mobileTurnstileRetryTimer);
+    mobileTurnstileRetryTimer = 0;
+  }
+
+  state.turnstileToken = "";
+  state.turnstileErrorCode = code;
+  state.turnstileRetryCount += 1;
+  state.turnstileStatus = "loading";
+
+  const widgetId = state.turnstileWidgetId;
+  mobileTurnstileRetryTimer = globalThis.setTimeout(() => {
+    mobileTurnstileRetryTimer = 0;
+    try {
+      window.turnstile.reset(widgetId);
+      state.turnstileStatus = "ready";
+    } catch {
+      state.turnstileWidgetId = null;
+      state.turnstileStatus = "error";
+      render();
+    }
+  }, MOBILE_TURNSTILE_RETRY_DELAY_MS * state.turnstileRetryCount);
+
+  return true;
 }
 
 function canRetryMobileTurnstile() {
@@ -1040,9 +1557,12 @@ async function mountTurnstileIfNeeded() {
       theme: "light",
       size: "flexible",
       action: "auth_email",
+      retry: "auto",
+      "retry-interval": 1500,
       callback(token) {
         state.turnstileErrorCode = "";
         state.turnstileToken = token;
+        state.turnstileRetryCount = 0;
         state.turnstileStatus = "verified";
         render();
       },
@@ -1050,23 +1570,33 @@ async function mountTurnstileIfNeeded() {
         resetMobileTurnstile();
       },
       "error-callback"(errorCode) {
+        const code = String(errorCode || "").trim();
+        if (scheduleMobileTurnstileRetry(code)) {
+          return false;
+        }
         state.turnstileWidgetId = null;
         state.turnstileToken = "";
-        state.turnstileErrorCode = String(errorCode || "").trim();
+        state.turnstileErrorCode = code;
         state.turnstileStatus = "error";
         render();
+        return true;
       },
     });
   } catch {
     state.turnstileWidgetId = null;
     state.turnstileToken = "";
     state.turnstileErrorCode = "";
+    state.turnstileRetryCount = 0;
     state.turnstileStatus = "error";
     render();
   }
 }
 
 function resetMobileTurnstile() {
+  if (mobileTurnstileRetryTimer) {
+    globalThis.clearTimeout(mobileTurnstileRetryTimer);
+    mobileTurnstileRetryTimer = 0;
+  }
   if (state.turnstileWidgetId !== null && window.turnstile?.remove) {
     try {
       window.turnstile.remove(state.turnstileWidgetId);
@@ -1075,6 +1605,7 @@ function resetMobileTurnstile() {
   state.turnstileWidgetId = null;
   state.turnstileToken = "";
   state.turnstileErrorCode = "";
+  state.turnstileRetryCount = 0;
   state.turnstileStatus = hasTurnstileConfig() ? "idle" : "missing";
   if (state.tab === "settings") {
     render();
@@ -1149,8 +1680,9 @@ function renderCurrentTab() {
 function renderOrdersTab() {
   const scopedOrders = getScopedOrders();
   const abnormalOrders = getAbnormalOrders();
+  const handledArchivedOrders = getHandledArchivedOrders();
   const archivedOrders = getArchivedOrders();
-  const visibleOrders = getVisibleOrderPool(scopedOrders, abnormalOrders, archivedOrders);
+  const visibleOrders = getVisibleOrderPool(scopedOrders, abnormalOrders, archivedOrders, handledArchivedOrders);
   syncSelectionToVisible(visibleOrders);
   const selectedVisibleIds = getSelectedVisibleIds(visibleOrders);
   const selectedVisibleOrders = visibleOrders.filter((order) => selectedVisibleIds.includes(order.id));
@@ -1228,7 +1760,7 @@ function renderOrdersTab() {
             <span class="mobile-filter-label">来源</span>
             <span class="mobile-form-select-wrap">
               <select class="mobile-form-select" data-order-source-filter>
-                ${renderOrdersFilterOptions(["全部", ...SOURCES], state.orderSourceFilter, getSourceLabel)}
+                ${renderOrdersFilterOptions(["全部", ...getOrderSourceFilterOptions()], state.orderSourceFilter, getSourceLabel)}
               </select>
             </span>
           </label>
@@ -1254,6 +1786,12 @@ function renderOrdersTab() {
         </div>
       </section>
     ` : ""}
+
+    ${
+      state.ordersFeedbackMessage
+        ? `<div class="mobile-feedback-banner${state.ordersFeedbackTone === "error" ? " is-error" : " is-success"} mobile-orders-feedback">${escapeHtml(state.ordersFeedbackMessage)}</div>`
+        : ""
+    }
 
     <div class="mobile-orders-section-label">
       <span>${scopeLabel} · ${scopedOrders.length}</span>
@@ -1281,63 +1819,53 @@ function renderOrdersTab() {
       </div>
     ` : ""}
 
-    ${archivedOrders.length ? `
-      <div class="mobile-orders-section-label">
-        <span>最近归档 · ${archivedOrders.length}</span>
-      </div>
-      <div class="mobile-orders-list">
-        ${archivedOrders.map((order) => renderOrderCard(order, { tone: "muted" })).join("")}
-      </div>
-    ` : ""}
+    ${(() => {
+      let html = "";
+      if (handledArchivedOrders.length) {
+        html += `
+          <div class="mobile-orders-section-label">
+            <span>已处理异常 · ${handledArchivedOrders.length}</span>
+          </div>
+          <div class="mobile-orders-list">
+            ${handledArchivedOrders.map((order) => renderOrderCard(order, { tone: "warning" })).join("")}
+          </div>
+        `;
+      }
+      if (archivedOrders.length) {
+        html += `
+          <div class="mobile-orders-section-label">
+            <span>最近归档 · ${archivedOrders.length}</span>
+          </div>
+          <div class="mobile-orders-list">
+            ${archivedOrders.map((order) => renderOrderCard(order, { tone: "muted" })).join("")}
+          </div>
+        `;
+      }
+      return html;
+    })()}
 
-    <section class="mobile-card mobile-batch-section">
-      <div class="mobile-row-between">
-        <div>
-          <h2 class="mobile-section-title">批量操作</h2>
-          <p class="mobile-form-hint">点卡片右上角的选择按钮后，就能批量改状态、记已结清或设异常。</p>
-        </div>
-        <span class="mobile-muted">${selectedVisibleIds.length} / ${visibleOrders.length || 0} 已选</span>
+    ${selectedVisibleIds.length ? `
+    <div class="mobile-batch-spacer"></div>
+    <section class="mobile-batch-floating">
+      <div class="mobile-batch-floating-header">
+        <span class="mobile-batch-count">${selectedVisibleIds.length} 已选</span>
+        <button class="mobile-chip" type="button" data-action="${allVisibleSelected ? "clear-selection" : "select-all-visible"}"${visibleOrders.length ? "" : " disabled"}>${allVisibleSelected ? "取消全选" : "全选"}</button>
+        <button class="mobile-chip" type="button" data-action="clear-selection">清空</button>
       </div>
-      ${
-        state.ordersFeedbackMessage
-          ? `
-            <div class="mobile-feedback-banner${state.ordersFeedbackTone === "error" ? " is-error" : " is-success"} mobile-orders-feedback">
-              ${escapeHtml(state.ordersFeedbackMessage)}
-            </div>
-          `
-          : ""
-      }
-      <div class="mobile-chip-row mobile-order-batch-toolbar">
-        <button class="mobile-chip${allVisibleSelected ? " is-active" : ""}" type="button" data-action="${allVisibleSelected ? "clear-selection" : "select-all-visible"}"${
-          visibleOrders.length ? "" : " disabled"
-        }>${allVisibleSelected ? "取消全选" : "全选当前可见"}</button>
-        <button class="mobile-chip" type="button" data-action="clear-selection"${selectedVisibleIds.length ? "" : " disabled"}>清空选择</button>
+      <div class="mobile-batch-floating-actions">
+        <button class="mobile-batch-action" type="button" data-action="batch-mark-done"${hasAbnormalSelection ? " disabled" : ""}>${ICONS.check(14)}<span>归档</span></button>
+        <button class="mobile-batch-action" type="button" data-action="batch-mark-paid"${hasAbnormalSelection ? " disabled" : ""}>${ICONS.banknote(14)}<span>结清</span></button>
+        <button class="mobile-batch-action" type="button" data-action="batch-mark-handled"${hasNormalSelection ? " disabled" : ""}>${ICONS.shield(14)}<span>已处理</span></button>
+        <span class="mobile-batch-action-sep"></span>
+        <span class="mobile-form-select-wrap mobile-batch-exception-select">
+          <select class="mobile-form-select" data-batch-exception-type>
+            ${EXCEPTION_TYPES.filter((value) => value !== "无").map((value) => `<option value="${escapeAttribute(value)}"${value === state.batchExceptionType ? " selected" : ""}>${escapeHtml(value)}</option>`).join("")}
+          </select>
+        </span>
+        <button class="mobile-batch-action is-warning" type="button" data-action="batch-apply-exception">${ICONS.alertTriangle(14)}<span>设异常</span></button>
       </div>
-      ${
-        selectedVisibleIds.length
-          ? `
-            <div class="mobile-order-batch-grid">
-              <button class="mobile-pill-button" type="button" data-action="batch-mark-done"${hasAbnormalSelection ? " disabled" : ""}>完结归档</button>
-              <button class="mobile-pill-button" type="button" data-action="batch-mark-paid"${hasAbnormalSelection ? " disabled" : ""}>记为已结清</button>
-              <button class="mobile-pill-button" type="button" data-action="batch-mark-handled"${hasNormalSelection ? " disabled" : ""}>批量已处理</button>
-            </div>
-            <div class="mobile-order-batch-exception">
-              <span class="mobile-form-select-wrap">
-                <select class="mobile-form-select" data-batch-exception-type>
-                  ${EXCEPTION_TYPES.filter((value) => value !== "无")
-                    .map(
-                      (value) =>
-                        `<option value="${escapeAttribute(value)}"${value === state.batchExceptionType ? " selected" : ""}>${escapeHtml(value)}</option>`,
-                    )
-                    .join("")}
-                </select>
-              </span>
-              <button class="mobile-pill-button mobile-pill-button-accent" type="button" data-action="batch-apply-exception">批量设异常</button>
-            </div>
-          `
-          : `<div class="mobile-empty">还没选中稿件。可以先选一单，再用这里做单条或批量处理。</div>`
-      }
     </section>
+    ` : ""}
   `;
 }
 
@@ -1361,6 +1889,7 @@ function renderCalendarTab() {
       <button type="button" data-calendar-mode="${CALENDAR_MODE_TAGS}" class="${state.calendarMode === CALENDAR_MODE_TAGS ? "is-active" : ""}">标签月历</button>
       <button type="button" data-calendar-mode="${CALENDAR_MODE_TIMELINE}" class="${state.calendarMode === CALENDAR_MODE_TIMELINE ? "is-active" : ""}">条状排期</button>
     </div>
+    ${renderMobileCalendarCreateNotice()}
     ${
       state.calendarMode === CALENDAR_MODE_TAGS
         ? renderCalendarTagsView(range, selectedDate)
@@ -1369,9 +1898,15 @@ function renderCalendarTab() {
     <section class="mobile-card" style="margin-top:12px">
       <div class="mobile-row-between" style="margin-bottom:8px">
         <h2 class="mobile-section-title" style="margin:0">${formatCalendarDialogDate(selectedDate)} · ${selectedEntries.length} 项</h2>
-        <button class="mobile-primary-inline" type="button" data-action="jump-create" style="display:flex;align-items:center;gap:4px">
-          ${ICONS.plus(13)} 新建到此日
-        </button>
+        ${
+          state.calendarCreateMode
+            ? `<span class="mobile-calendar-create-selection-tip">${escapeHtml(
+                state.calendarCreateStartDate ? "点截止日期完成新建" : "点动工日期开始新建",
+              )}</span>`
+            : `<button class="mobile-primary-inline" type="button" data-action="jump-create-today" style="display:flex;align-items:center;gap:4px"${state.busy ? " disabled" : ""}>
+                ${ICONS.plus(13)} 新建到此日
+              </button>`
+        }
       </div>
       <div class="mobile-chip-row mobile-calendar-mark-bar">
         <button class="mobile-chip${getCalendarDayMarkType(selectedDate) === CALENDAR_DAY_MARK_REST ? " is-active" : ""}" type="button" data-calendar-mark-rest="${escapeAttribute(selectedDate)}"${state.calendarDayMarksBusy ? " disabled" : ""}>标为休息日</button>
@@ -1384,6 +1919,39 @@ function renderCalendarTab() {
             ? selectedEntries.map(renderCalendarEntryCard).join("")
             : `<div class="mobile-empty">当日无截稿排期</div>`
         }
+      </div>
+    </section>
+  `;
+}
+
+function renderMobileCalendarCreateNotice() {
+  const canCreate = !state.busy;
+  const timelineMode = state.calendarMode === CALENDAR_MODE_TIMELINE;
+  const actionLabel = state.calendarCreateMode ? "取消选日期" : "选日期新建";
+  let statusText = timelineMode
+    ? "先点“选日期新建”，再依次点动工和截稿日期；条状排期也保留直接拖拽建稿。"
+    : "先点“选日期新建”，再依次点动工和截稿日期；跨月时翻页后继续点即可。";
+
+  if (state.calendarCreateMode) {
+    statusText = state.calendarCreateStartDate
+      ? `第 2 步：已选 ${formatCalendarDialogDate(state.calendarCreateStartDate)} 作为动工日，再点一个日期作为截稿日期。可切换月份后继续选。${
+          timelineMode ? " 条状排期空白处也能直接拖出区间。" : ""
+        }`
+      : timelineMode
+        ? "第 1 步：先点动工日期；也可以直接在条状排期空白处拖出区间。"
+        : "第 1 步：先点动工日期，再点截稿日期。";
+  }
+
+  return `
+    <section class="mobile-card mobile-calendar-create-card">
+      <div class="mobile-row-between">
+        <div class="mobile-calendar-create-copy">
+          <h2 class="mobile-section-title" style="margin:0 0 4px">跨月新建</h2>
+          <p class="mobile-calendar-create-status">${escapeHtml(statusText)}</p>
+        </div>
+        <button class="mobile-primary-inline" type="button" data-action="jump-create"${canCreate ? "" : " disabled"}>
+          ${escapeHtml(actionLabel)}
+        </button>
       </div>
     </section>
   `;
@@ -1414,21 +1982,31 @@ function renderCalendarTagsView(range, selectedDate) {
         ${range.dateKeys
           .map((dateKey) => {
             const date = parseDateKey(dateKey);
+            const createRangeState = getMobileCalendarCreateRangeState(dateKey);
             const inMonth = date?.getMonth() === state.month.getMonth();
             const isToday = dateKey === formatDateInput(new Date());
             const isSelected = dateKey === selectedDate;
             const markType = getCalendarDayMarkType(dateKey);
             const markLabel = markType === CALENDAR_DAY_MARK_REST ? "休" : markType === CALENDAR_DAY_MARK_WORK ? "班" : "";
-            const dots = getCalendarEntriesForDate(dateKey)
-              .slice(0, 3)
-              .map((entry) => `<span class="mobile-calendar-dot" style="background:${getOrderCalendarColor(entry.order)}"></span>`)
+            const entries = getCalendarEntriesForDate(dateKey).slice(0, 2);
+            const capsules = entries
+              .map((entry) => {
+                const color = getOrderCalendarColor(entry.order);
+                const name = escapeHtml((entry.order.projectName || entry.order.businessType || "").slice(0, 2));
+                const prefix = entry.type === "start" ? "动" : entry.type === "due" ? "截" : entry.type === "done" ? "✓" : entry.type === "both" ? "⇆" : "";
+                const isDone = entry.typeLabel?.includes("✓");
+                const capsuleClass = `mobile-calendar-capsule${isDone ? " is-done" : ""}${entry.type === "start" ? " is-start" : ""}${entry.type === "due" || entry.type === "both" ? " is-due" : ""}`;
+                return `<span class="${capsuleClass}" style="background:${color}${isDone ? "22" : "38"};color:${color};border-color:${color}66">${prefix}${name}</span>`;
+              })
               .join("");
+            const extraCount = getCalendarEntriesForDate(dateKey).length - 2;
+            const overflow = extraCount > 0 ? `<span class="mobile-calendar-capsule-more">+${extraCount}</span>` : "";
             return `
-              <button type="button" class="mobile-calendar-cell${inMonth ? "" : " is-outside"}${isToday ? " is-today" : ""}${isSelected ? " is-selected" : ""}${markType ? ` is-mark-${markType}` : ""}" data-calendar-date="${escapeAttribute(
+              <button type="button" class="mobile-calendar-cell${inMonth ? "" : " is-outside"}${isToday ? " is-today" : ""}${isSelected ? " is-selected" : ""}${createRangeState.isAnchor ? " is-create-anchor" : ""}${createRangeState.isInRange ? " is-create-range" : ""}${markType ? ` is-mark-${markType}` : ""}" data-calendar-date="${escapeAttribute(
                 dateKey,
               )}">
                 <span class="mobile-calendar-day">${date?.getDate() || ""}${markLabel ? `<span class="mobile-calendar-mark">${markLabel}</span>` : ""}</span>
-                <div class="mobile-calendar-dots">${dots}</div>
+                <div class="mobile-calendar-capsules">${capsules}${overflow}</div>
               </button>
             `;
           })
@@ -1454,7 +2032,6 @@ function renderCalendarTimelineView(range) {
     <section class="mobile-card">
       <div class="mobile-row-between">
         <h2 class="mobile-section-title">条状排期</h2>
-        <button class="mobile-primary-inline" type="button" data-action="jump-create">新建稿件</button>
       </div>
       <div class="mobile-timeline-list">
         ${
@@ -1463,7 +2040,7 @@ function renderCalendarTimelineView(range) {
             : `<div class="mobile-empty">当前月份没有可展示的排期条。</div>`
         }
       </div>
-      <p class="mobile-fab-note">按周展示横向跨天条，和网页端一样以日期跨度而不是进度百分比排布。</p>
+      <p class="mobile-fab-note">按周展示横向跨天条。这里既能直接拖出日期范围，也能先点上面的“选日期新建”再跨月点起止日期。</p>
     </section>
   `;
 }
@@ -1474,16 +2051,17 @@ function renderTimelineWeek(week) {
       <div class="mobile-timeline-week-label">${escapeHtml(week.label)}</div>
       <div class="mobile-timeline-days">
         ${week.days
-          .map(
-            (day) => `
-              <button type="button" class="mobile-timeline-day${day.inMonth ? "" : " is-outside"}${day.isToday ? " is-today" : ""}${day.isSelected ? " is-selected" : ""}" data-calendar-date="${escapeAttribute(
+          .map((day) => {
+            const createRangeState = getMobileCalendarCreateRangeState(day.key);
+            return `
+              <button type="button" class="mobile-timeline-day${day.inMonth ? "" : " is-outside"}${day.isToday ? " is-today" : ""}${day.isSelected ? " is-selected" : ""}${createRangeState.isAnchor ? " is-create-anchor" : ""}${createRangeState.isInRange ? " is-create-range" : ""}" data-calendar-date="${escapeAttribute(
                 day.key,
               )}">
                 <span class="mobile-timeline-weekday">${day.weekday}</span>
                 <span class="mobile-timeline-date">${day.day}</span>
               </button>
-            `,
-          )
+            `;
+          })
           .join("")}
       </div>
       <div class="mobile-timeline-track" data-timeline-track data-week-start="${escapeAttribute(week.weekStartKey)}" style="--lane-count:${Math.max(week.laneCount, 1)};">
@@ -1496,20 +2074,21 @@ function renderTimelineWeek(week) {
 function renderTimelineWeekBar(segment) {
   const width = ((segment.endCol - segment.startCol + 1) / 7) * 100;
   const left = (segment.startCol / 7) * 100;
-  const style = `left:${left}%;width:${width}%;top:${6 + segment.lane * 36}px;--bar-bg:${segment.palette.background};--bar-border:${segment.palette.border};--bar-text:${segment.palette.text};`;
-  const labels = [];
-  if (segment.order.productionStage) labels.push(segment.order.productionStage);
-  if (normalizePaymentStatus(segment.order) !== PAYMENT_STATUSES[0]) labels.push(normalizePaymentStatus(segment.order));
+  const span = segment.endCol - segment.startCol + 1;
+  const style = `left:${left}%;width:${width}%;top:${5 + segment.lane * 34}px;--bar-bg:${segment.palette.background};--bar-border:${segment.palette.border};--bar-text:${segment.palette.text};`;
+  const stage = segment.order.productionStage || "";
+  const payStatus = normalizePaymentStatus(segment.order);
+  const showPay = payStatus && payStatus !== PAYMENT_STATUSES[0];
+  const meta = [];
+  if (span < 3 && stage) meta.push(stage);
+  if (showPay) meta.push(payStatus);
+  const metaHtml = meta.length ? `<span class="mobile-timeline-bar-meta">${escapeHtml(meta.join(" · "))}</span>` : "";
 
   return `
     <article class="mobile-timeline-bar${segment.closed ? " is-closed" : ""}${segment.continuesBefore ? " continues-before" : ""}${segment.continuesAfter ? " continues-after" : ""}" data-timeline-bar data-timeline-order-id="${escapeAttribute(segment.order.id)}" data-focus-date="${escapeAttribute(segment.focusDateKey)}" style="${style}">
       <div class="mobile-timeline-bar-main">
         <strong class="mobile-timeline-bar-title">${escapeHtml(segment.label)}</strong>
-        ${
-          labels.length
-            ? `<span class="mobile-timeline-bar-meta">${escapeHtml(labels.join(" · "))}</span>`
-            : ""
-        }
+        ${metaHtml}
       </div>
     </article>
   `;
@@ -1519,19 +2098,28 @@ function renderCreateTab() {
   const draft = state.createDraft;
   const sourceLabel = getSourceLabel(draft.source);
   const sourceColor = getSourceColor(draft.source);
+  const createSourceOptions = getCreateSourceOptions();
   const feeSummary = buildFeeSummary(draft);
+  const amountLabel = getCreateAmountLabel(draft);
+  const amountHint = getCreateAmountHint(draft);
+  const displayedAmount = getCreateDisplayedAmount(draft);
   const recentBusinessTypes = getRecentBusinessTypes();
   const editingOrder = state.editingOrderId ? state.orders.find((order) => order.id === state.editingOrderId) : null;
-  const stageOptions = [draft.productionStage || BUILT_IN_PRODUCTION_STAGES[0], ...BUILT_IN_PRODUCTION_STAGES]
+  const stageOptions = [draft.productionStage || BUILT_IN_PRODUCTION_STAGES[0], ...BUILT_IN_PRODUCTION_STAGES, ...state.customStages]
     .filter(Boolean)
     .filter((value, index, array) => array.indexOf(value) === index)
-    .slice(0, 5);
+    .slice(0, 8);
   const repeatReady = Boolean(getRepeatSource());
   const typeStyle = getBusinessTypeStyle(draft.businessType);
 
   // Payment progress for hero card
-  const grossAmount = normalizeMoneyValue(draft.amount);
+  const grossAmount = calculateGrossAmount(draft);
   const receivedAmount = normalizeMoneyValue(draft.receivedAmount);
+  const netAmount = calculateAdjustedNetAmountCny(draft, state.fxSettings);
+  const feeAmount = calculateAdjustedFeeAmountCny(draft, state.fxSettings);
+  const quotedAmount = calculateQuotedAmountCny(draft, state.fxSettings);
+  const isMhsProject = normalizeFeeMode(draft.feeMode) === "mhs_project";
+  const isArtistMode = isMhsProject && getCreateAmountInputKind(draft) !== AMOUNT_INPUT_VALUE_KIND_QUOTED;
   const paymentPct = grossAmount > 0 ? Math.min(100, (receivedAmount / grossAmount) * 100) : 0;
   const remaining = grossAmount - receivedAmount;
   const paymentColor = remaining <= 0 && grossAmount > 0 ? "#10B981" : receivedAmount > 0 ? "#F59E0B" : "#EF4444";
@@ -1604,21 +2192,88 @@ function renderCreateTab() {
               ${renderChipItems(recentBusinessTypes, draft.businessType)}
             </div>
           </div>
-          ${renderEditableSelectRow(
-            "来源",
-            "source",
-            draft.source,
-            SOURCE_OPTIONS.map((item) => ({ value: item.value, label: item.label })),
-          )}
+          <label class="mobile-form-row">
+            <div>
+              <span class="mobile-form-label">来源</span>
+              <span class="mobile-form-hint">右侧下拉选择</span>
+            </div>
+            <div class="mobile-source-picker">
+              <span class="mobile-form-select-wrap">
+                <select class="mobile-form-select" data-create-select="source">
+                  ${createSourceOptions
+                    .map(
+                      (value) =>
+                        `<option value="${escapeAttribute(value)}"${value === draft.source ? " selected" : ""}>${escapeHtml(getSourceLabel(value))}</option>`,
+                    )
+                    .join("")}
+                </select>
+              </span>
+              <button class="mobile-source-manage-btn" type="button" data-action="toggle-source-manager">
+                ${state.sourceManagerOpen ? "收起" : "自定义"}
+              </button>
+            </div>
+          </label>
+          ${
+            state.sourceManagerOpen
+              ? `
+                <div class="mobile-source-manager">
+                  <div class="mobile-source-manager-row">
+                    <input
+                      class="mobile-form-input mobile-source-manager-input"
+                      type="text"
+                      maxlength="20"
+                      placeholder="添加自定义来源"
+                      value="${escapeAttribute(state.sourceDraftName)}"
+                      data-source-name-input
+                    />
+                    <button class="mobile-source-manage-btn is-primary" type="button" data-action="add-custom-source">添加</button>
+                  </div>
+                  ${
+                    state.customSources.length
+                      ? `
+                        <div class="mobile-source-chip-list">
+                          ${state.customSources
+                            .map(
+                              (value) => `
+                                <span class="mobile-source-chip">
+                                  <span>${escapeHtml(getSourceLabel(value))}</span>
+                                  <button type="button" class="mobile-source-chip-remove" data-source-delete="${escapeAttribute(value)}" aria-label="删除来源">×</button>
+                                </span>
+                              `,
+                            )
+                            .join("")}
+                        </div>
+                      `
+                      : `<div class="mobile-form-hint">还没有自定义来源，添加后会出现在上面的下拉菜单里。</div>`
+                  }
+                </div>
+              `
+              : ""
+          }
         </div>
       </div>
 
       <div class="mobile-create-section">
         <div class="mobile-create-section-label">${ICONS.banknote(12)} <span>价格与结算</span></div>
         <div class="mobile-create-section-card">
-          ${renderEditableNumberRow("总稿费", "amount", draft.amount, "0.00", {
+          ${isMhsProject ? `
+            <div class="mobile-form-row mobile-amount-mode-row">
+              <div><span class="mobile-form-label">金额口径</span></div>
+              <div class="mobile-amount-mode-toggle">
+                <button class="mobile-toggle-btn${!isArtistMode ? "" : " is-active"}" type="button" data-action="set-amount-mode-artist">画师到手</button>
+                <button class="mobile-toggle-btn${isArtistMode ? "" : " is-active"}" type="button" data-action="set-amount-mode-client">邀请总价</button>
+              </div>
+            </div>
+          ` : ""}
+          ${renderEditableNumberRow(amountLabel, "amount", displayedAmount, "0.00", {
             prefix: "¥",
+            hint: amountHint,
           })}
+          <div class="mobile-inline-price-row" id="create-inline-net">
+            ${isArtistMode && quotedAmount > 0 && feeAmount > 0
+              ? `邀请价 ${formatCompactAmount(quotedAmount)}  ·  手续费 ${formatCompactAmount(feeAmount)}  ·  到手 ${formatCompactAmount(netAmount)}`
+              : `${grossAmount > 0 && feeAmount > 0 ? `总价 ${formatCompactAmount(grossAmount)}  ·  手续费 -${formatCompactAmount(feeAmount)}  ·  ` : ""}实得 ${formatCompactAmount(netAmount)}`}
+          </div>
           ${renderEditableNumberRow("已收金额", "receivedAmount", draft.receivedAmount, "0.00", {
             prefix: "¥",
           })}
@@ -1667,6 +2322,10 @@ function renderCreateTab() {
               draft.priority,
               PRIORITIES.map((value) => ({ value, label: value })),
             )}
+            ${renderEditableNumberRow("加急加价", "priorityRate", (draft.priorityRate || 0) * 100, "0", {
+              suffix: "%",
+              kind: "percent",
+            })}
             ${renderEditableSelectRow(
               "用途类型",
               "usageType",
@@ -1677,11 +2336,6 @@ function renderCreateTab() {
               suffix: "%",
               kind: "percent",
             })}
-            ${
-              draft.source === "米画师企划邀请"
-                ? renderReadonlyFormRow("企划金额口径", "按画师到手", "")
-                : ""
-            }
           ` : ""}
         </div>
       </div>
@@ -1714,6 +2368,7 @@ function renderCreateTab() {
             <div class="mobile-stage-track">
               ${renderStageItems(stageOptions, draft.productionStage || BUILT_IN_PRODUCTION_STAGES[0])}
             </div>
+            <input class="mobile-form-input mobile-custom-stage-input" type="text" maxlength="20" placeholder="自定义阶段名称" data-create-input="productionStage" value="${escapeAttribute(!BUILT_IN_PRODUCTION_STAGES.includes(draft.productionStage) && draft.productionStage ? draft.productionStage : "")}" />
           </div>
           ${renderEditableSelectRow(
             "异常类型",
@@ -1751,13 +2406,23 @@ function renderCreateTab() {
 
 function renderStatsTab() {
   const monthOrders = state.orders.filter((order) => isSameMonth(order.completedDate || order.dueDate, state.month));
-  const settledIncome = monthOrders.reduce((total, order) => total + calculateAdjustedNetAmountCny(order, state.fxSettings), 0);
+  const settledIncome = monthOrders.reduce((total, order) => total + calculateEffectiveAmountCny(order, state.fxSettings), 0);
   const received = monthOrders.reduce((total, order) => total + calculateEffectiveReceivedCny(order, state.fxSettings), 0);
-  const pending = monthOrders.reduce((total, order) => {
-    const gross = calculateAdjustedNetAmountCny(order, state.fxSettings);
-    const receivedAmount = calculateEffectiveReceivedCny(order, state.fxSettings);
-    return total + Math.max(gross - receivedAmount, 0);
-  }, 0);
+  const pending = Math.max(settledIncome - received, 0);
+  const totalNet = monthOrders.reduce((total, order) => total + calculateAdjustedNetAmountCny(order, state.fxSettings), 0);
+  const totalFee = monthOrders.reduce((total, order) => total + calculateAdjustedFeeAmountCny(order, state.fxSettings), 0);
+  // Work hours summary (same logic as web summarizeWorkHours)
+  const ordersWithHours = monthOrders.filter(
+    (item) => sanitizeWorkHours(item.workHours) > 0 && (Boolean(item.completedDate) || isClosed(item)),
+  );
+  const totalHours = ordersWithHours.reduce((total, item) => total + sanitizeWorkHours(item.workHours), 0);
+  const totalHoursNet = ordersWithHours.reduce((total, item) => total + calculateAdjustedNetAmountCny(item, state.fxSettings), 0);
+  const avgHourlyRate = totalHours > 0 && totalHoursNet > 0 ? totalHoursNet / totalHours : null;
+  // Overdue & pending orders — use full order pool, not just current month
+  const today = formatDateInput(new Date());
+  const overdueCount = state.orders.filter((o) => o.dueDate && o.dueDate < today && !isClosed(o) && !isAbnormal(o)).length;
+  const unhandledAbnormalCount = state.orders.filter(isUnhandledAbnormal).length;
+  const pendingOrderCount = state.orders.filter((o) => isUnhandledAbnormal(o) || (!isAbnormal(o) && !isClosed(o))).length;
   const monthlyTrend = buildStatsMonthlyTrend(state.orders, state.month);
   const sourceBreakdown = buildStatsSourceBreakdown(monthOrders);
   const stageBreakdown = buildStatsStageBreakdown(monthOrders);
@@ -1791,10 +2456,26 @@ function renderStatsTab() {
         <article class="mobile-metric-card" style="background:#ECFDF5">
           <span class="mobile-summary-label">已收净额</span>
           <strong class="mobile-summary-value" style="color:#2f9b74">${formatCompactAmount(received)}</strong>
+          <span class="mobile-metric-note">待收 ${formatCompactAmount(pending)}</span>
         </article>
-        <article class="mobile-metric-card" style="background:#FFFBEB">
-          <span class="mobile-summary-label">待收金额</span>
-          <strong class="mobile-summary-value" style="color:#D97706">${formatCompactAmount(pending)}</strong>
+        <article class="mobile-metric-card" style="background:#EFF6FF">
+          <span class="mobile-summary-label">预计实得</span>
+          <strong class="mobile-summary-value" style="color:#3B82F6">${formatCompactAmount(totalNet)}</strong>
+          <span class="mobile-metric-note">${totalFee > 0 ? `平台费 ${formatCompactAmount(totalFee)}` : ""}</span>
+        </article>
+        <article class="mobile-metric-card" style="background:#F0FDF4">
+          <span class="mobile-summary-label">参考时薪</span>
+          <strong class="mobile-summary-value" style="color:#16A34A">${avgHourlyRate != null ? `${formatCompactAmount(avgHourlyRate)}/h` : "--"}</strong>
+          <span class="mobile-metric-note">${ordersWithHours.length > 0 ? `${ordersWithHours.length}单 / ${formatHours(totalHours)}h` : "补工时后统计"}</span>
+        </article>
+        <article class="mobile-metric-card" style="background:${overdueCount > 0 ? "#FEF2F2" : "#F9FAFB"}">
+          <span class="mobile-summary-label">逾期稿件</span>
+          <strong class="mobile-summary-value" style="color:${overdueCount > 0 ? "#DC2626" : "#9CA3AF"}">${overdueCount}<span style="font-size:12px;font-weight:400;margin-left:2px">件</span></strong>
+        </article>
+        <article class="mobile-metric-card" style="background:${pendingOrderCount > 0 ? "#FFFBEB" : "#F9FAFB"}">
+          <span class="mobile-summary-label">待处理稿件</span>
+          <strong class="mobile-summary-value" style="color:${pendingOrderCount > 0 ? "#D97706" : "#9CA3AF"}">${pendingOrderCount}<span style="font-size:12px;font-weight:400;margin-left:2px">件</span></strong>
+          ${unhandledAbnormalCount > 0 ? `<span class="mobile-metric-note" style="color:#DC2626">含异常 ${unhandledAbnormalCount}</span>` : ""}
         </article>
       </div>
     </section>
@@ -1817,6 +2498,7 @@ function renderStatsTab() {
         </span>
       </div>
     </section>
+    ${renderDailyProgressSection(monthOrders, state.month)}
     <section class="mobile-card">
       <div class="mobile-stat-grid">
         <article class="mobile-stat-card">
@@ -1850,9 +2532,21 @@ function renderStatsTab() {
     <section class="mobile-card">
       <div class="mobile-row-between">
         <h2 class="mobile-section-title">客户累计</h2>
-        <span class="mobile-muted mobile-threshold-inline-wrap">重点≥¥<input class="mobile-threshold-inline" type="number" min="0" step="100" value="${vipThreshold}" data-vip-threshold-input ${state.clientInsightBusy ? "disabled" : ""} /></span>
+        <span class="mobile-muted">${vipCount} 位重点客户</span>
       </div>
-      <p class="mobile-form-hint">共 ${clientBreakdown.length} 位客户，达到重点客户阈值 ${vipCount} 位。这里按累计结算收入排行。</p>
+      <div class="mobile-vip-threshold-capsules">
+        <span class="mobile-vip-threshold-label">重点阈值</span>
+        ${[1000, 2000, 3000, 5000, 10000]
+          .map(
+            (val) =>
+              `<button type="button" class="mobile-vip-capsule${vipThreshold === val ? " is-active" : ""}" data-vip-preset="${val}"${state.clientInsightBusy ? " disabled" : ""}>${formatCompactAmount(val)}</button>`,
+          )
+          .join("")}
+        <span class="mobile-vip-custom-wrap">
+          <input class="mobile-vip-custom-input" type="number" inputmode="numeric" min="0" step="100" value="${vipThreshold}" placeholder="自定" data-vip-threshold-input ${state.clientInsightBusy ? "disabled" : ""} />
+        </span>
+      </div>
+      <p class="mobile-form-hint">共 ${clientBreakdown.length} 位客户，累计结算≥${formatCompactAmount(vipThreshold)} 标记为重点。</p>
       <div class="mobile-client-list">
         ${
           clientBreakdown.length
@@ -1864,13 +2558,82 @@ function renderStatsTab() {
   `;
 }
 
+function renderDailyProgressSection(monthOrders, selectedMonthDate) {
+  const year = selectedMonthDate.getFullYear();
+  const month = selectedMonthDate.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const dailyRows = Array.from({ length: daysInMonth }, (_, i) => ({ day: i + 1, income: 0, received: 0, hours: 0 }));
+
+  // Use the same month-assignment rule as the stats cards above:
+  // completedDate || dueDate (no startDate fallback), so both sections agree.
+  monthOrders.forEach((order) => {
+    const dateKey = normalizeDateKey(order.completedDate || order.dueDate);
+    if (!dateKey) return;
+    const day = Number(dateKey.slice(8, 10));
+    if (!Number.isInteger(day) || day < 1 || day > daysInMonth) return;
+    const row = dailyRows[day - 1];
+    row.income += calculateEffectiveAmountCny(order, state.fxSettings);
+    row.received += calculateEffectiveReceivedCny(order, state.fxSettings);
+    row.hours += sanitizeWorkHours(order.workHours);
+  });
+
+  const totalIncome = dailyRows.reduce((s, r) => s + r.income, 0);
+  const totalReceived = dailyRows.reduce((s, r) => s + r.received, 0);
+  const totalHours = dailyRows.reduce((s, r) => s + r.hours, 0);
+  const activeDays = dailyRows.filter((r) => r.income > 0 || r.hours > 0).length;
+  const maxDailyIncome = Math.max(...dailyRows.map((r) => r.income), 0);
+
+  const summaryParts = [];
+  if (activeDays > 0) {
+    summaryParts.push(`结算 ${formatCompactAmount(totalIncome)}`);
+    if (totalReceived > 0) summaryParts.push(`已收 ${formatCompactAmount(totalReceived)}`);
+    summaryParts.push(`工时 ${formatHours(totalHours) || "0"} 小时`);
+    summaryParts.push(`记录 ${activeDays} 天`);
+  }
+  const summaryText = summaryParts.length > 0 ? summaryParts.join("，") : "这个月还没有结算/工时记录。";
+
+  const firstDay = new Date(year, month, 1).getDay();
+  const leadingBlanks = Array.from({ length: firstDay }, () => '<div class="mobile-daily-cell is-empty"></div>');
+  const dayCells = dailyRows.map((row) => {
+    const ratio = maxDailyIncome > 0 ? row.income / maxDailyIncome : 0;
+    const isEmpty = row.income <= 0 && row.hours <= 0;
+    return `
+      <article class="mobile-daily-cell${isEmpty ? " is-empty" : ""}" style="--income-ratio:${ratio.toFixed(3)}">
+        <strong class="mobile-daily-day">${row.day}</strong>
+        <span class="mobile-daily-income">${row.income > 0 ? formatCompactAmount(row.income) : "-"}</span>
+        <span class="mobile-daily-hours">${row.hours > 0 ? `${formatHours(row.hours)}h` : "-"}</span>
+      </article>
+    `;
+  });
+  const totalCells = firstDay + daysInMonth;
+  const trailingCount = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
+  const trailingBlanks = Array.from({ length: trailingCount }, () => '<div class="mobile-daily-cell is-empty"></div>');
+  const weekdayLabels = ["日", "一", "二", "三", "四", "五", "六"];
+
+  return `
+    <section class="mobile-card">
+      <div class="mobile-row-between" style="margin-bottom:4px">
+        <h2 class="mobile-section-title">${month + 1}月 每日进度</h2>
+        <span class="mobile-muted" style="font-size:11px">已收 &amp; 工时</span>
+      </div>
+      <p class="mobile-form-hint" style="margin-bottom:10px">${escapeHtml(summaryText)}</p>
+      <div class="mobile-daily-weekday-row">
+        ${weekdayLabels.map((l) => `<span>${l}</span>`).join("")}
+      </div>
+      <div class="mobile-daily-grid">
+        ${[...leadingBlanks, ...dayCells, ...trailingBlanks].join("")}
+      </div>
+    </section>
+  `;
+}
+
 function buildStatsMonthlyTrend(orders, monthDate, months = 6) {
   const series = [];
   for (let offset = months - 1; offset >= 0; offset -= 1) {
     const bucketDate = new Date(monthDate.getFullYear(), monthDate.getMonth() - offset, 1);
     const bucketOrders = orders.filter((order) => isSameMonth(order.completedDate || order.dueDate, bucketDate));
     const settled = bucketOrders.reduce(
-      (total, order) => total + calculateAdjustedNetAmountCny(order, state.fxSettings),
+      (total, order) => total + calculateEffectiveAmountCny(order, state.fxSettings),
       0,
     );
     const received = bucketOrders.reduce(
@@ -1961,7 +2724,7 @@ function buildStatsSourceBreakdown(orders) {
   orders.forEach((order) => {
     const key = getSourceLabel(order.source);
     const current = totals.get(key) || 0;
-    totals.set(key, current + calculateAdjustedNetAmountCny(order, state.fxSettings));
+    totals.set(key, current + calculateEffectiveAmountCny(order, state.fxSettings));
   });
 
   const maxValue = Math.max(...totals.values(), 0);
@@ -2007,7 +2770,7 @@ function buildStatsClientBreakdown(orders) {
       lastOrderDate: "",
     };
     current.orderCount += 1;
-    current.totalAmount += calculateAdjustedNetAmountCny(order, state.fxSettings);
+    current.totalAmount += calculateEffectiveAmountCny(order, state.fxSettings);
     const latestDate = String(order.completedDate || order.dueDate || order.startDate || "");
     if (latestDate && (!current.lastOrderDate || latestDate > current.lastOrderDate)) {
       current.lastOrderDate = latestDate;
@@ -2068,10 +2831,13 @@ function renderSettingsTab() {
   const signupCooldown = getAuthCooldownRemaining("signup", state.authEmail);
   const resendCooldown = getAuthCooldownRemaining("resendSignup", state.authEmail);
   const forgotPasswordCooldown = getAuthCooldownRemaining("forgotPassword", state.authEmail);
-  const emailActionDisabled = state.busy || !hasTurnstileConfig();
-  const supportLink = APP_RUNTIME.supportUrl
-    ? `<a class="mobile-settings-value" href="${APP_RUNTIME.supportUrl}" target="_blank" rel="noreferrer">打开</a>`
-    : `<span class="mobile-settings-value">未配置</span>`;
+  const emailActionDisabled = state.busy;
+  const settingsFeedbackHtml = state.settingsFeedbackMessage
+    ? `<div class="mobile-settings-feedback mobile-feedback-banner${state.settingsFeedbackTone === "error" ? " is-error" : " is-success"}" data-settings-feedback>
+        ${escapeHtml(state.settingsFeedbackMessage)}
+      </div>`
+    : "";
+  // supportUrl is kept in runtime for App Store review but no longer shown in settings UI
   const authPanel = !cloudAvailable
     ? `
         <div class="mobile-settings-inline-note">
@@ -2132,9 +2898,13 @@ function renderSettingsTab() {
             <button class="mobile-settings-action-button" type="button" data-action="sign-out"${state.busy ? " disabled" : ""}>
               退出登录
             </button>
-            <button class="mobile-settings-action-button mobile-danger-button" type="button" data-action="delete-account"${state.busy ? " disabled" : ""}>
-              删除账号
-            </button>
+            ${state.confirmDeleteAccount
+              ? `<div style="display:flex;gap:8px;align-items:center">
+                  <button class="mobile-settings-action-button" type="button" data-action="cancel-delete-account"${state.busy ? " disabled" : ""}>取消</button>
+                  <button class="mobile-settings-action-button mobile-danger-button" type="button" data-action="confirm-delete-account"${state.busy ? " disabled" : ""}>确认删除，不可恢复</button>
+                </div>`
+              : `<button class="mobile-settings-action-button mobile-danger-button" type="button" data-action="delete-account"${state.busy ? " disabled" : ""}>删除账号</button>`
+            }
           </div>
         `
       : `
@@ -2180,13 +2950,87 @@ function renderSettingsTab() {
           </div>
           ${renderMobileTurnstilePanel()}
           <p class="mobile-settings-note">${
-            hasTurnstileConfig()
+            APP_RUNTIME.isNativeApp
+              ? "移动端支持登录、注册、重发验证邮件和忘记密码；邮箱验证链接与重置密码链接会回到当前页面。"
+              : hasTurnstileConfig()
               ? "移动端现在支持登录、注册、重发验证邮件和忘记密码；邮箱验证链接与重置密码链接会回到当前页面。"
               : "当前项目没有开启人机验证，所以移动端暂时只支持登录；注册、重发验证邮件和忘记密码仍请走网页端。"
           }</p>
         `;
 
+  const proSection = !APP_RUNTIME.isNativeApp
+    ? ""
+    : (() => {
+        const isPro = isProUser();
+        const { initialized, initError, productsLoading } = state.proStatus;
+        const isUnavailable = initError === "no_bridge";
+        const isFailed = initError === "init_failed" || initError === "products_failed";
+
+        let proLabel, proValue, proAction, proAccessory;
+        if (isPro) {
+          proLabel = "Pro 已激活";
+          proValue = getProExpiryText();
+          proAction = "manage-subscription";
+          proAccessory = ICONS.check(16);
+        } else if (!initialized || productsLoading) {
+          proLabel = "Pro 订阅";
+          proValue = "加载中…";
+          proAction = "";
+          proAccessory = "";
+        } else if (isUnavailable) {
+          proLabel = "Pro 订阅";
+          proValue = "购买服务不可用";
+          proAction = "";
+          proAccessory = "";
+        } else if (isFailed) {
+          proLabel = "升级到 Pro";
+          proValue = "产品加载失败，点击重试";
+          proAction = "retry-load-products";
+          proAccessory = ICONS.refresh(16);
+        } else {
+          proLabel = "升级到 Pro";
+          proValue = "解锁云端同步";
+          proAction = "open-paywall";
+          proAccessory = ICONS.chevronRight(16);
+        }
+
+        const rowTag = proAction
+          ? `<button class="mobile-settings-row" type="button" data-action="${proAction}">`
+          : `<div class="mobile-settings-row">`;
+        const rowCloseTag = proAction ? `</button>` : `</div>`;
+
+        return `
+    <!-- Pro 订阅 -->
+    <div class="mobile-settings-section">
+      <div class="mobile-settings-section-title">Pro 订阅</div>
+      <div class="mobile-settings-card">
+        ${rowTag}
+          <div class="mobile-settings-icon-circle" style="background: #FFF3E0; color: #E8734A">${ICONS.sparkles(16)}</div>
+          <div class="mobile-settings-row-body">
+            <div class="mobile-settings-row-label">${proLabel}</div>
+            <div class="mobile-settings-row-value">${proValue}</div>
+          </div>
+          <div class="mobile-settings-row-right">${proAccessory}</div>
+        ${rowCloseTag}
+        ${
+          !isPro && initialized && !isUnavailable
+            ? `
+        <button class="mobile-settings-row" type="button" data-action="restore-purchases">
+          <div class="mobile-settings-icon-circle" style="background: #E8F5E9; color: #4CAF50">${ICONS.refresh(16)}</div>
+          <div class="mobile-settings-row-body">
+            <div class="mobile-settings-row-label">恢复购买</div>
+          </div>
+          <div class="mobile-settings-row-right">${ICONS.chevronRight(16)}</div>
+        </button>`
+            : ""
+        }
+      </div>
+    </div>`;
+      })();
+
   return `
+    ${proSection}
+
     <!-- 数据模式 -->
     <div class="mobile-settings-section">
       <div class="mobile-settings-section-title">数据模式</div>
@@ -2203,7 +3047,7 @@ function renderSettingsTab() {
         <button class="mobile-settings-row" type="button" data-action="mode-cloud"${!cloudAvailable || state.busy || state.recoveryMode ? " disabled" : ""}>
           <div class="mobile-settings-icon-circle" style="background: #F5F0FF; color: #8B5CF6">${ICONS.cloud(16)}</div>
           <div class="mobile-settings-row-body">
-            <div class="mobile-settings-row-label">账号同步</div>
+            <div class="mobile-settings-row-label">账号同步${!isProUser() && APP_RUNTIME.isNativeApp ? " · Pro" : ""}</div>
             <div class="mobile-settings-row-value">${cloudStatusLabel}</div>
           </div>
           <div class="mobile-settings-row-right">
@@ -2219,6 +3063,7 @@ function renderSettingsTab() {
       <div class="mobile-settings-card" style="padding: 14px">
         ${authPanel}
       </div>
+      ${settingsFeedbackHtml}
     </div>
 
     <!-- 数据 -->
@@ -2254,26 +3099,19 @@ function renderSettingsTab() {
           <div class="mobile-settings-row-right">${ICONS.chevronRight(16)}</div>
         </button>
       </div>
-      ${
-        state.settingsFeedbackMessage
-          ? `<div class="mobile-settings-feedback mobile-feedback-banner${state.settingsFeedbackTone === "error" ? " is-error" : " is-success"}" style="margin-top:8px">
-              ${escapeHtml(state.settingsFeedbackMessage)}
-            </div>`
-          : ""
-      }
     </div>
 
-    <!-- 支持 -->
+    <!-- 反馈与支持 -->
     <div class="mobile-settings-section">
-      <div class="mobile-settings-section-title">支持</div>
+      <div class="mobile-settings-section-title">反馈与支持</div>
       <div class="mobile-settings-card">
-        <div class="mobile-settings-row" style="cursor:default">
-          <div class="mobile-settings-icon-circle" style="background: #F5F0FF; color: #8B5CF6">${ICONS.helpCircle(16)}</div>
+        <button class="mobile-settings-row" type="button" data-action="open-feedback">
+          <div class="mobile-settings-icon-circle" style="background: #FFF7ED; color: #E8734A">${ICONS.messageCircle(16)}</div>
           <div class="mobile-settings-row-body">
-            <div class="mobile-settings-row-label">支持页面</div>
+            <div class="mobile-settings-row-label">意见反馈</div>
           </div>
-          <div class="mobile-settings-row-right">${supportLink}</div>
-        </div>
+          <div class="mobile-settings-row-right">${ICONS.chevronRight(16)}</div>
+        </button>
         <div class="mobile-settings-row" style="cursor:default">
           <div class="mobile-settings-icon-circle" style="background: #ECFDF5; color: #2f9b74">${ICONS.info(16)}</div>
           <div class="mobile-settings-row-body">
@@ -2316,7 +3154,82 @@ function renderSheetOverlay() {
   if (state.activeSheet === SHEET_WORK_HOURS) {
     return renderWorkHoursSheet();
   }
+  if (state.activeSheet === SHEET_FEEDBACK) {
+    return renderFeedbackSheet();
+  }
   return "";
+}
+
+function renderFeedbackSheet() {
+  const categories = FEEDBACK_CATEGORIES;
+  const submitting = state.feedbackSubmitting;
+  const message = state.feedbackMessage;
+  const tone = state.feedbackMessageTone;
+
+  return `
+    <div class="mobile-sheet-shell">
+      <button class="mobile-sheet-backdrop" type="button" data-action="close-sheet" aria-label="关闭弹层"></button>
+      <section class="mobile-sheet-panel mobile-sheet-card" style="max-height:85vh">
+        <div class="mobile-sheet-handle"></div>
+        <header class="mobile-sheet-header">
+          <button class="mobile-sheet-close" type="button" data-action="close-sheet">${ICONS.x(20)}</button>
+          <h2 class="mobile-sheet-title">意见反馈</h2>
+        </header>
+        <div style="padding:0 20px 24px; overflow-y:auto">
+          <p style="font-size:13px; color:var(--mobile-muted); margin:0 0 16px">
+            Bug、功能建议、体验问题都欢迎提交，会同步到网页端同一个反馈数据库。
+          </p>
+
+          <label class="mobile-form-label" style="margin-bottom:4px">反馈类型</label>
+          <div class="mobile-feedback-categories" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px">
+            ${categories.map((cat) => `
+              <button type="button" class="mobile-badge${state.feedbackCategory === cat ? " is-accent" : ""}" data-action="set-feedback-category" data-value="${escapeHtml(cat)}">${escapeHtml(cat)}</button>
+            `).join("")}
+          </div>
+
+          <label class="mobile-form-label" style="margin-bottom:4px">反馈内容 <span style="color:var(--mobile-danger)">*</span></label>
+          <textarea
+            class="mobile-form-input mobile-feedback-textarea"
+            data-field="feedbackContent"
+            placeholder="请描述你遇到的问题或建议（5–500 字）"
+            maxlength="500"
+            rows="5"
+            style="resize:vertical; margin-bottom:14px"
+          >${escapeHtml(state.feedbackContent)}</textarea>
+
+          <label class="mobile-form-label" style="margin-bottom:4px">昵称（选填）</label>
+          <input
+            class="mobile-form-input"
+            data-field="feedbackNickname"
+            placeholder="公开鸣谢时使用"
+            maxlength="40"
+            value="${escapeHtml(state.feedbackNickname)}"
+            style="margin-bottom:14px"
+          />
+
+          <label class="mobile-form-label" style="margin-bottom:4px">联系方式（选填）</label>
+          <input
+            class="mobile-form-input"
+            data-field="feedbackContact"
+            placeholder="QQ / 邮箱 / 微信，方便我回复你"
+            maxlength="80"
+            value="${escapeHtml(state.feedbackContact)}"
+            style="margin-bottom:18px"
+          />
+
+          ${message ? `<div class="mobile-feedback-banner${tone === "error" ? " is-error" : " is-success"}" style="margin-bottom:14px">${escapeHtml(message)}</div>` : ""}
+
+          <button
+            class="mobile-button-primary"
+            type="button"
+            data-action="submit-feedback"
+            ${submitting ? "disabled" : ""}
+            style="width:100%"
+          >${submitting ? "提交中…" : "提交反馈"}</button>
+        </div>
+      </section>
+    </div>
+  `;
 }
 
 function renderExceptionSheet() {
@@ -2733,6 +3646,49 @@ function renderOrdersFilterOptions(options, selectedValue, labelResolver = (valu
     .join("");
 }
 
+function addSourcePreset(value) {
+  const normalized = normalizeSourceValue(value);
+  if (!normalized) {
+    state.sourceDraftName = "";
+    render();
+    return;
+  }
+  if (SOURCES.includes(normalized) || state.customSources.includes(normalized)) {
+    updateDraftSelectField("source", normalized);
+    state.sourceDraftName = "";
+    render();
+    return;
+  }
+  persistLocalSourcePresets([...state.customSources, normalized]);
+  updateDraftSelectField("source", normalized);
+  state.sourceDraftName = "";
+  state.sourceManagerOpen = true;
+  render();
+}
+
+function removeStagePreset(value) {
+  const normalized = normalizeProductionStageValue(value);
+  if (!normalized || BUILT_IN_PRODUCTION_STAGES.includes(normalized)) return;
+  persistLocalStagePresets(state.customStages.filter((item) => item !== normalized));
+  if (normalizeProductionStageValue(state.createDraft?.productionStage) === normalized) {
+    updateCreateDraft({ productionStage: BUILT_IN_PRODUCTION_STAGES[0] });
+  }
+  render();
+}
+
+function removeSourcePreset(value) {
+  const normalized = normalizeSourceValue(value);
+  if (!normalized) return;
+  persistLocalSourcePresets(state.customSources.filter((item) => item !== normalized));
+  if (normalizeSourceValue(state.createDraft?.source) === normalized) {
+    updateDraftSelectField("source", SOURCES[0]);
+  }
+  if (state.orderSourceFilter === normalized) {
+    state.orderSourceFilter = "全部";
+  }
+  render();
+}
+
 function renderOrderCard(order, options = {}) {
   const amount = formatCompactAmount(normalizeMoneyValue(order.amount));
   const received = normalizeMoneyValue(order.receivedAmount);
@@ -2802,6 +3758,7 @@ function renderOrderCard(order, options = {}) {
               <span class="mobile-order-client">${escapeHtml(order.clientName || "未填写客户")}</span>
               <span class="mobile-order-dot">·</span>
               <span class="mobile-order-type" style="color:${typeStyle.color}">${escapeHtml(order.businessType || "其他")}</span>
+              <span class="mobile-order-source-tag" style="color:${sourceColor};background:${sourceColor}12">${escapeHtml(getSourceLabel(order.source))}</span>
             </div>
           </div>
           <div class="mobile-order-top-side">
@@ -2829,19 +3786,22 @@ function renderOrderCard(order, options = {}) {
       ${isExpanded ? renderAmountDetail(order) : ""}
       ${isExpanded ? renderStageTimeline(order) : ""}
       ${exceptionSummary ? `<div class="mobile-order-note">${exceptionSummary}</div>` : ""}
-      ${quickActions ? `<div class="mobile-order-quick-actions">${quickActions}</div>` : ""}
-      <div class="mobile-order-actions">
-        <button type="button" class="mobile-order-action" data-order-edit="${escapeAttribute(order.id)}">${editLabel}</button>
-        <button type="button" class="mobile-order-action" data-order-duplicate="${escapeAttribute(order.id)}">复制</button>
+      ${isExpanded ? `
+      <div class="mobile-order-actions-bar">
+        ${quickActions}
+        <span class="mobile-order-actions-sep"></span>
+        <button type="button" class="mobile-order-action-icon" data-order-edit="${escapeAttribute(order.id)}" title="${editLabel}">${ICONS.penTool(14)}<span>${editLabel}</span></button>
+        <button type="button" class="mobile-order-action-icon" data-order-duplicate="${escapeAttribute(order.id)}" title="复制">${ICONS.copy(14)}<span>复制</span></button>
         ${
           isConfirmingDelete
             ? `
-              <button type="button" class="mobile-order-action" data-order-cancel-delete="${escapeAttribute(order.id)}">取消</button>
-              <button type="button" class="mobile-order-action is-danger" data-order-delete="${escapeAttribute(order.id)}">确认删除</button>
+              <button type="button" class="mobile-order-action-icon" data-order-cancel-delete="${escapeAttribute(order.id)}" title="取消">${ICONS.x(14)}<span>取消</span></button>
+              <button type="button" class="mobile-order-action-icon is-danger" data-order-delete="${escapeAttribute(order.id)}" title="确认删除">${ICONS.trash2(14)}<span>确认</span></button>
             `
-            : `<button type="button" class="mobile-order-action is-danger" data-order-confirm-delete="${escapeAttribute(order.id)}">删除</button>`
+            : `<button type="button" class="mobile-order-action-icon is-danger" data-order-confirm-delete="${escapeAttribute(order.id)}" title="删除">${ICONS.trash2(14)}<span>删除</span></button>`
         }
       </div>
+      ` : ""}
     </article>
   `;
 }
@@ -2948,21 +3908,22 @@ function renderOrderQuickActionButtons(order) {
   const actions = [];
 
   if (isAbnormal(order)) {
-    actions.push(`<button type="button" class="mobile-order-action" data-order-exception="${id}"${disabled}>处理异常</button>`);
+    actions.push(`<button type="button" class="mobile-order-action-icon is-warning" data-order-exception="${id}"${disabled}>${ICONS.alertTriangle(14)}<span>处理异常</span></button>`);
     if (order.status !== "已处理") {
-      actions.push(`<button type="button" class="mobile-order-action" data-order-quick-action="handled" data-order-id="${id}"${disabled}>已处理</button>`);
+      actions.push(`<button type="button" class="mobile-order-action-icon" data-order-quick-action="handled" data-order-id="${id}"${disabled}>${ICONS.shield(14)}<span>已处理</span></button>`);
     }
+    actions.push(`<button type="button" class="mobile-order-action-icon" data-order-quick-action="cancelException" data-order-id="${id}"${disabled}>${ICONS.x(14)}<span>取消异常</span></button>`);
     return actions.join("");
   }
 
   if (!isClosed(order)) {
-    actions.push(`<button type="button" class="mobile-order-action" data-order-quick-action="complete" data-order-id="${id}"${disabled}>完结归档</button>`);
+    actions.push(`<button type="button" class="mobile-order-action-icon" data-order-quick-action="complete" data-order-id="${id}"${disabled}>${ICONS.check(14)}<span>归档</span></button>`);
   }
   if (normalizePaymentStatus(order) !== "已结清" && order.status !== "已处理") {
-    actions.push(`<button type="button" class="mobile-order-action" data-order-quick-action="settlePayment" data-order-id="${id}"${disabled}>记为已结清</button>`);
+    actions.push(`<button type="button" class="mobile-order-action-icon" data-order-quick-action="settlePayment" data-order-id="${id}"${disabled}>${ICONS.banknote(14)}<span>结清</span></button>`);
   }
   if (isClosed(order) && order.status !== "已处理") {
-    actions.push(`<button type="button" class="mobile-order-action" data-order-quick-action="revertToActive" data-order-id="${id}"${disabled}>改回进行中</button>`);
+    actions.push(`<button type="button" class="mobile-order-action-icon" data-order-quick-action="revertToActive" data-order-id="${id}"${disabled}>${ICONS.refresh(14)}<span>改回进行中</span></button>`);
   }
   return actions.join("");
 }
@@ -2990,22 +3951,24 @@ function renderCalendarEntryCard(entry) {
   const typeLabel = entry.typeLabel || "稿件";
   const sourceColor = getOrderCalendarColor(order);
   return `
-    <article class="mobile-order-card">
-      <div class="mobile-order-top">
-        <div>
-          <h3 class="mobile-order-title">${escapeHtml(order.projectName || "未命名稿件")}</h3>
-          <p class="mobile-order-client">${escapeHtml(order.clientName || "未填写客户")}</p>
+    <article class="mobile-order-card" style="--order-source-color:${sourceColor}">
+      <div class="mobile-order-body">
+        <div class="mobile-order-top" style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <div style="min-width:0">
+            <h3 class="mobile-order-title">${escapeHtml(order.projectName || "未命名稿件")}</h3>
+            <p class="mobile-order-client">${escapeHtml(order.clientName || "未填写客户")}</p>
+          </div>
+          <span class="mobile-badge" style="border-color:${sourceColor}33;color:${sourceColor};flex-shrink:0">${escapeHtml(typeLabel)}</span>
         </div>
-        <span class="mobile-badge" style="border-color:${sourceColor}33;color:${sourceColor};">${escapeHtml(typeLabel)}</span>
-      </div>
-      <div class="mobile-order-meta">
-        <span class="mobile-badge">${escapeHtml(order.productionStage || "待推进")}</span>
-        <span class="mobile-badge is-accent">${escapeHtml(normalizeDateKey(order.dueDate) || "未排截稿")}</span>
-        <span class="mobile-badge">${amount}</span>
-      </div>
-      <div class="mobile-order-actions">
-        <button type="button" class="mobile-order-action" data-order-edit="${escapeAttribute(order.id)}">编辑</button>
-        <button type="button" class="mobile-order-action" data-order-duplicate="${escapeAttribute(order.id)}">复制</button>
+        <div class="mobile-order-meta" style="margin-top:8px">
+          <span class="mobile-badge">${escapeHtml(order.productionStage || "待推进")}</span>
+          <span class="mobile-badge is-accent">${escapeHtml(normalizeDateKey(order.dueDate) || "未排截稿")}</span>
+          <span class="mobile-badge">${amount}</span>
+        </div>
+        <div class="mobile-order-actions-bar" style="padding-top:8px">
+          <button type="button" class="mobile-order-action-icon" data-order-edit="${escapeAttribute(order.id)}">${ICONS.penTool(14)}<span>编辑</span></button>
+          <button type="button" class="mobile-order-action-icon" data-order-duplicate="${escapeAttribute(order.id)}">${ICONS.copy(14)}<span>复制</span></button>
+        </div>
       </div>
     </article>
   `;
@@ -3097,10 +4060,22 @@ function renderEditableTextareaBlock(label, field, value = "", placeholder = "")
 }
 
 function bindEvents() {
-  const immediateActions = new Set(["save-create-order", "cancel-edit-order"]);
+  const immediateActions = new Set([
+    "save-create-order",
+    "cancel-edit-order",
+    "sign-in",
+    "sign-up",
+    "resend-signup",
+    "forgot-password",
+    "update-password",
+  ]);
   root.querySelectorAll("[data-tab]").forEach((button) => {
     button.addEventListener("click", () => {
-      state.tab = button.dataset.tab || "orders";
+      const nextTab = button.dataset.tab || "orders";
+      if (state.tab === "calendar" && nextTab !== "calendar") {
+        cancelMobileCalendarCreateMode({ skipRender: true });
+      }
+      state.tab = nextTab;
       render();
     });
   });
@@ -3150,12 +4125,75 @@ function bindEvents() {
 
   root.querySelectorAll("[data-calendar-date]").forEach((button) => {
     button.addEventListener("click", () => {
+      if (Date.now() < calendarLongPressSuppressClickUntil) return;
       const dateKey = normalizeDateKey(button.dataset.calendarDate);
       if (!dateKey) return;
-      state.selectedCalendarDate = dateKey;
-      render();
+      handleMobileCalendarDateSelection(dateKey);
+    });
+    // Long press → context menu
+    let longPressTimer = null;
+    let longPressFired = false;
+    let touchStartX = 0;
+    let touchStartY = 0;
+    button.addEventListener("touchstart", (event) => {
+      longPressFired = false;
+      const touch = event.touches[0];
+      if (!touch) return;
+      const cx = touch.clientX;
+      const cy = touch.clientY;
+      touchStartX = cx;
+      touchStartY = cy;
+      longPressTimer = setTimeout(() => {
+        longPressFired = true;
+        calendarLongPressSuppressClickUntil = Date.now() + CALENDAR_LONG_PRESS_CLICK_SUPPRESS_MS;
+        const dateKey = normalizeDateKey(button.dataset.calendarDate);
+        if (dateKey) openMobileCalendarContextMenu(dateKey, cx, cy);
+      }, CALENDAR_LONG_PRESS_MS);
+    }, { passive: true });
+    button.addEventListener("touchmove", (event) => {
+      const touch = event.touches[0];
+      if (!touch || !longPressTimer) return;
+      const movedX = Math.abs(touch.clientX - touchStartX);
+      const movedY = Math.abs(touch.clientY - touchStartY);
+      if (Math.max(movedX, movedY) < CALENDAR_LONG_PRESS_MOVE_THRESHOLD_PX) return;
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }, { passive: true });
+    button.addEventListener("touchend", (event) => {
+      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+      if (longPressFired) { event.preventDefault(); longPressFired = false; }
+    });
+    button.addEventListener("touchcancel", () => {
+      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+      longPressFired = false;
+    }, { passive: true });
+    // Right-click fallback (Simulator / desktop)
+    button.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      calendarLongPressSuppressClickUntil = Date.now() + CALENDAR_LONG_PRESS_CLICK_SUPPRESS_MS;
+      const dateKey = normalizeDateKey(button.dataset.calendarDate);
+      if (dateKey) openMobileCalendarContextMenu(dateKey, event.clientX, event.clientY);
     });
   });
+
+  // Context menu overlay dismiss
+  const ctxOverlay = document.getElementById("mobile-ctx-overlay");
+  if (ctxOverlay) {
+    ctxOverlay.addEventListener("click", closeMobileCalendarContextMenu);
+  }
+
+  // Context menu action buttons
+  const ctxMenu = document.getElementById("mobile-ctx-menu");
+  if (ctxMenu) {
+    ctxMenu.addEventListener("click", (event) => {
+      const btn = event.target.closest("[data-ctx-action]");
+      if (!btn) return;
+      const action = btn.dataset.ctxAction;
+      const dateKey = ctxMenu.dataset.date || "";
+      closeMobileCalendarContextMenu();
+      handleCalendarContextAction(action, dateKey);
+    });
+  }
 
   root.querySelectorAll("[data-calendar-mark-rest]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -3197,14 +4235,20 @@ function bindEvents() {
   root.querySelectorAll("[data-action]").forEach((button) => {
     const action = button.dataset.action || "";
     if (immediateActions.has(action)) {
+      let firedByPointerDown = false;
       button.addEventListener("pointerdown", (event) => {
         event.preventDefault();
-        void handleAction(action);
+        firedByPointerDown = true;
+        void handleAction(action, button);
+      });
+      button.addEventListener("click", () => {
+        if (firedByPointerDown) { firedByPointerDown = false; return; }
+        void handleAction(action, button);
       });
       return;
     }
     button.addEventListener("click", () => {
-      void handleAction(action);
+      void handleAction(action, button);
     });
   });
 
@@ -3319,9 +4363,36 @@ function bindEvents() {
 
   root.querySelectorAll("[data-stage-choice]").forEach((button) => {
     button.addEventListener("click", () => {
-      updateCreateDraft({ productionStage: button.dataset.stageChoice || state.createDraft.productionStage });
+      const nextStage = button.dataset.stageChoice || state.createDraft.productionStage;
+      ensureStagePresetExists(nextStage);
+      updateCreateDraft({ productionStage: nextStage });
       render();
     });
+  });
+
+  // Long-press to delete custom stages
+  root.querySelectorAll("[data-stage-custom]").forEach((button) => {
+    let longPressTimer = null;
+    let didLongPress = false;
+    const cancel = () => { clearTimeout(longPressTimer); longPressTimer = null; };
+    button.addEventListener("pointerdown", (event) => {
+      didLongPress = false;
+      longPressTimer = setTimeout(() => {
+        didLongPress = true;
+        const stageName = button.dataset.stageCustom;
+        if (stageName && confirm(`删除自定义阶段「${stageName}」？`)) {
+          removeStagePreset(stageName);
+        }
+      }, 600);
+    });
+    button.addEventListener("pointerup", cancel);
+    button.addEventListener("pointercancel", cancel);
+    button.addEventListener("pointermove", (event) => {
+      if (event.pointerType === "touch") cancel();
+    });
+    button.addEventListener("click", (event) => {
+      if (didLongPress) { event.preventDefault(); event.stopPropagation(); }
+    }, { capture: true });
   });
 
   root.querySelectorAll("[data-color-choice]").forEach((button) => {
@@ -3400,6 +4471,21 @@ function bindEvents() {
     });
   });
 
+  root.querySelector("[data-source-name-input]")?.addEventListener("input", (event) => {
+    state.sourceDraftName = String(event.target.value || "");
+  });
+  root.querySelector("[data-source-name-input]")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    addSourcePreset(state.sourceDraftName);
+  });
+
+  root.querySelectorAll("[data-source-delete]").forEach((button) => {
+    button.addEventListener("click", () => {
+      removeSourcePreset(button.dataset.sourceDelete || "");
+    });
+  });
+
   root.querySelector("[data-vip-threshold-input]")?.addEventListener("input", (event) => {
     const parsed = Number(event.target.value);
     if (Number.isFinite(parsed) && parsed >= 0) {
@@ -3412,6 +4498,19 @@ function bindEvents() {
 
   root.querySelector("[data-vip-threshold-input]")?.addEventListener("blur", () => {
     persistClientInsightSettingsFromUi();
+  });
+
+  root.querySelectorAll("[data-vip-preset]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const val = Number(button.dataset.vipPreset);
+      if (!Number.isFinite(val) || val < 0) return;
+      state.clientInsightSettings = normalizeClientInsightSettings({
+        ...state.clientInsightSettings,
+        vipThreshold: val,
+      });
+      persistClientInsightSettingsFromUi();
+      render();
+    });
   });
 
   root.querySelector("[data-auth-email]")?.addEventListener("input", (event) => {
@@ -3430,13 +4529,32 @@ function bindEvents() {
     state.authResetPasswordConfirm = event.target.value;
   });
 
-  root.querySelectorAll("[data-create-input]").forEach((input) => {
-    input.addEventListener("input", (event) => {
-      updateCreateDraft({
-        [event.target.dataset.createInput]: event.target.value,
-      });
+  // Feedback form field bindings
+  root.querySelectorAll('[data-field]').forEach((el) => {
+    el.addEventListener("input", (event) => {
+      const field = event.target.dataset.field;
+      if (field && field.startsWith("feedback")) {
+        state[field] = event.target.value;
+      }
     });
-    input.addEventListener("change", () => {
+  });
+
+  root.querySelectorAll("[data-create-input]").forEach((input) => {
+    const field = input.dataset.createInput;
+    input.addEventListener("input", (event) => {
+      if (field === "source") {
+        updateDraftSelectField("source", event.target.value);
+      } else {
+        updateCreateDraft({ [field]: event.target.value });
+      }
+      updateCreateSummaryInPlace();
+    });
+    input.addEventListener("change", (event) => {
+      if (field === "source") {
+        updateDraftSelectField("source", event.target.value);
+      } else if (field === "productionStage") {
+        ensureStagePresetExists(event.target.value);
+      }
       state.createFeedbackMessage = "";
       render();
     });
@@ -3452,8 +4570,19 @@ function bindEvents() {
           ? sanitizeWorkHours(raw)
           : kind === "percent"
             ? Math.max(0, Number(raw || 0)) / 100
-            : normalizeMoneyValue(raw);
-      updateCreateDraft({ [field]: nextValue });
+            : field === "amount"
+              ? parseCreateAmountInput(raw)
+              : normalizeMoneyValue(raw);
+      if (
+        field === "amount" &&
+        normalizeFeeMode(state.createDraft?.feeMode) === "mhs_project" &&
+        getCreateAmountInputKind(state.createDraft) === AMOUNT_INPUT_VALUE_KIND_QUOTED
+      ) {
+        updateCreateDraft({ amount: nextValue, mhsProjectQuotedAmount: normalizeMoneyValue(raw) });
+      } else {
+        updateCreateDraft({ [field]: nextValue });
+      }
+      updateCreateSummaryInPlace();
     });
     input.addEventListener("change", () => {
       state.createFeedbackMessage = "";
@@ -3496,7 +4625,7 @@ function bindStaticInputs() {
   importJsonInput?.addEventListener("change", importMobileJson);
 }
 
-async function handleAction(action) {
+async function handleAction(action, element) {
   if (action === "refresh") {
     if (isCloudSyncActive()) {
       await syncCloudWorkspaceOnLogin({ silent: true });
@@ -3527,11 +4656,74 @@ async function handleAction(action) {
     render();
     return;
   }
+  if (action === "toggle-source-manager") {
+    state.sourceManagerOpen = !state.sourceManagerOpen;
+    if (!state.sourceManagerOpen) {
+      state.sourceDraftName = "";
+    }
+    render();
+    return;
+  }
+  if (action === "add-custom-source") {
+    addSourcePreset(state.sourceDraftName);
+    return;
+  }
+  if (action === "set-amount-mode-artist") {
+    updateCreateDraft({ mhsProjectAmountMode: MHS_PROJECT_AMOUNT_MODE_ARTIST });
+    render();
+    return;
+  }
+  if (action === "set-amount-mode-client") {
+    updateCreateDraft({ mhsProjectAmountMode: MHS_PROJECT_AMOUNT_MODE_CLIENT });
+    render();
+    return;
+  }
+  if (action === "close-paywall") {
+    closeProPaywall();
+    return;
+  }
+  if (action === "open-paywall") {
+    openProPaywall();
+    return;
+  }
+  if (action === "purchase") {
+    const productId = element.dataset.productId;
+    if (productId) await handlePurchase(productId);
+    return;
+  }
+  if (action === "retry-load-products") {
+    await retryLoadProducts();
+    return;
+  }
+  if (action === "restore-purchases") {
+    await handleRestorePurchases();
+    return;
+  }
+  if (action === "manage-subscription") {
+    // Open App Store subscription management
+    if (APP_RUNTIME.isNativeApp) {
+      try {
+        const browser = globalThis.Capacitor?.Plugins?.Browser;
+        if (browser) {
+          await browser.open({ url: "https://apps.apple.com/account/subscriptions" });
+        } else {
+          window.location.href = "https://apps.apple.com/account/subscriptions";
+        }
+      } catch (_) {
+        // ignore
+      }
+    }
+    return;
+  }
   if (action === "mode-local") {
     await setStorageMode("local");
     return;
   }
   if (action === "mode-cloud") {
+    if (!isProUser()) {
+      openProPaywall();
+      return;
+    }
     await setStorageMode("cloud");
     return;
   }
@@ -3564,6 +4756,16 @@ async function handleAction(action) {
     return;
   }
   if (action === "delete-account") {
+    state.confirmDeleteAccount = true;
+    render();
+    return;
+  }
+  if (action === "cancel-delete-account") {
+    state.confirmDeleteAccount = false;
+    render();
+    return;
+  }
+  if (action === "confirm-delete-account") {
     await deleteAccountMobile();
     return;
   }
@@ -3573,9 +4775,14 @@ async function handleAction(action) {
   }
   if (action === "jump-create") {
     if (state.tab === "calendar") {
-      openCreateWithDateContext(state.selectedCalendarDate, state.selectedCalendarDate, "已按当前选中日期预填排期。");
+      if (state.calendarCreateMode) {
+        cancelMobileCalendarCreateMode();
+      } else {
+        startMobileCalendarCreateMode();
+      }
       return;
     }
+    cancelMobileCalendarCreateMode({ skipRender: true });
     state.editingOrderId = "";
     state.confirmDeleteOrderId = "";
     state.createDraft = buildCreateDraft();
@@ -3583,6 +4790,12 @@ async function handleAction(action) {
     state.tab = "create";
     render();
     return;
+  }
+  if (action === "jump-create-today") {
+    if (state.tab === "calendar") {
+      openCreateWithDateContext(state.selectedCalendarDate, state.selectedCalendarDate, "已按当前选中日期预填排期。");
+      return;
+    }
   }
   if (action === "month-prev") {
     state.month = shiftMonth(state.month, -1);
@@ -3616,6 +4829,27 @@ async function handleAction(action) {
   if (action === "close-sheet") {
     closeActiveSheet();
     render();
+    return;
+  }
+  if (action === "open-feedback") {
+    state.feedbackCategory = "";
+    state.feedbackContent = "";
+    state.feedbackNickname = "";
+    state.feedbackContact = "";
+    state.feedbackMessage = "";
+    state.feedbackMessageTone = "";
+    state.feedbackSubmitting = false;
+    state.activeSheet = SHEET_FEEDBACK;
+    render();
+    return;
+  }
+  if (action === "set-feedback-category") {
+    state.feedbackCategory = element?.dataset?.value || "";
+    render();
+    return;
+  }
+  if (action === "submit-feedback") {
+    await submitMobileFeedback();
     return;
   }
   if (action === "template-tab-apply") {
@@ -3737,6 +4971,8 @@ function refreshLocalData() {
   state.selectedOrderIds = new Set([...state.selectedOrderIds].filter((id) => state.orders.some((order) => order.id === id)));
   state.mode = loadMode();
   state.customBusinessTypes = loadLocalBusinessPresets();
+  state.customStages = loadLocalStagePresets(state.orders);
+  state.customSources = loadLocalSourcePresets();
   state.businessTemplates = loadLocalBusinessTemplates(state.fxSettings);
   state.lastTemplate = loadLastTemplate(state.fxSettings);
   state.clientInsightSettings = loadLocalClientInsightSettings();
@@ -3803,6 +5039,71 @@ function persistLocalBusinessPresets(list) {
   return normalized;
 }
 
+function collectCustomStageCandidates(orders = state.orders) {
+  return (orders || [])
+    .map((item) => normalizeProductionStageValue(item?.productionStage))
+    .filter((value) => value && !BUILT_IN_PRODUCTION_STAGES.includes(value));
+}
+
+function normalizeStagePresetList(list) {
+  const seen = new Set();
+  const normalizedList = [];
+  (list || []).forEach((item) => {
+    const normalized = normalizeProductionStageValue(item);
+    if (!normalized || BUILT_IN_PRODUCTION_STAGES.includes(normalized) || seen.has(normalized)) return;
+    seen.add(normalized);
+    normalizedList.push(normalized);
+  });
+  return normalizedList;
+}
+
+function loadLocalStagePresets(fallbackOrders = state.orders) {
+  const raw = globalThis.localStorage?.getItem(PRODUCTION_STAGE_PRESET_KEY);
+  if (raw == null) {
+    return normalizeStagePresetList(collectCustomStageCandidates(fallbackOrders));
+  }
+  return normalizeStagePresetList(readJsonStorage(PRODUCTION_STAGE_PRESET_KEY, []));
+}
+
+function persistLocalStagePresets(list) {
+  const normalized = normalizeStagePresetList(list);
+  state.customStages = normalized;
+  writeJsonStorage(PRODUCTION_STAGE_PRESET_KEY, normalized);
+  return normalized;
+}
+
+function ensureStagePresetExists(value) {
+  const normalized = normalizeProductionStageValue(value);
+  if (!normalized || BUILT_IN_PRODUCTION_STAGES.includes(normalized) || state.customStages.includes(normalized)) {
+    return normalized;
+  }
+  persistLocalStagePresets([...state.customStages, normalized]);
+  return normalized;
+}
+
+function normalizeSourcePresetList(list) {
+  const seen = new Set();
+  const normalizedList = [];
+  (list || []).forEach((item) => {
+    const normalized = normalizeSourceValue(item);
+    if (!normalized || SOURCES.includes(normalized) || seen.has(normalized)) return;
+    seen.add(normalized);
+    normalizedList.push(normalized);
+  });
+  return normalizedList;
+}
+
+function loadLocalSourcePresets() {
+  return normalizeSourcePresetList(readJsonStorage(SOURCE_PRESET_KEY, []));
+}
+
+function persistLocalSourcePresets(list) {
+  const normalized = normalizeSourcePresetList(list);
+  state.customSources = normalized;
+  writeJsonStorage(SOURCE_PRESET_KEY, normalized);
+  return normalized;
+}
+
 function loadLocalBusinessTemplates(fxSettings = state.fxSettings) {
   return normalizeBusinessTemplateMap(readJsonStorage(BUSINESS_TEMPLATE_KEY, {}), fxSettings);
 }
@@ -3832,8 +5133,36 @@ function getAbnormalOrders() {
   return getFilteredOrders("abnormal").slice(0, 8);
 }
 
+function getHandledArchivedOrders() {
+  return getFilteredOrders("archived").filter(isHandledAbnormal);
+}
+
 function getArchivedOrders() {
-  return getFilteredOrders("archived").slice(0, 8);
+  return getFilteredOrders("archived")
+    .filter((order) => !isHandledAbnormal(order))
+    .slice(0, 8);
+}
+
+function getCreateSourceOptions() {
+  const values = [...SOURCES, ...state.customSources];
+  const current = normalizeSourceValue(state.createDraft?.source);
+  if (current && !values.includes(current)) {
+    values.push(current);
+  }
+  return values;
+}
+
+function getOrderSourceFilterOptions() {
+  const seen = new Set();
+  const values = [];
+  [...SOURCES, ...state.customSources, ...state.orders.map((order) => normalizeSourceValue(order.source))]
+    .filter(Boolean)
+    .forEach((value) => {
+      if (seen.has(value)) return;
+      seen.add(value);
+      values.push(value);
+    });
+  return values;
 }
 
 function getFilteredOrders(mode = "active") {
@@ -3915,9 +5244,14 @@ function getOrderSortDate(order) {
   return String(order.completedDate || order.dueDate || order.startDate || "");
 }
 
-function getVisibleOrderPool(activeOrders = getScopedOrders(), abnormalOrders = getAbnormalOrders(), archivedOrders = getArchivedOrders()) {
+function getVisibleOrderPool(
+  activeOrders = getScopedOrders(),
+  abnormalOrders = getAbnormalOrders(),
+  archivedOrders = getArchivedOrders(),
+  handledArchivedOrders = getHandledArchivedOrders(),
+) {
   const seen = new Set();
-  return [...activeOrders, ...abnormalOrders, ...archivedOrders].filter((order) => {
+  return [...activeOrders, ...abnormalOrders, ...handledArchivedOrders, ...archivedOrders].filter((order) => {
     if (!order?.id || seen.has(order.id)) return false;
     seen.add(order.id);
     return true;
@@ -4016,7 +5350,13 @@ function buildCreateDraft() {
     feeRate: getDefaultFeeRate(source, feeMode),
     priority: seed.priority || PRIORITIES[0],
     usageType: seed.usageType || USAGE_TYPES[0],
-    usageRate: seed.usageRate || 0,
+    usageRate: normalizeUsageRate(seed.usageRate, seed.usageType || USAGE_TYPES[0]),
+    priorityRate: normalizePriorityRate(seed.priorityRate, seed.priority || PRIORITIES[0]),
+    mhsProjectAmountMode:
+      feeMode === "mhs_project" && normalizeMoneyValue(seed.mhsProjectQuotedAmount) > 0
+        ? MHS_PROJECT_AMOUNT_MODE_CLIENT
+        : MHS_PROJECT_AMOUNT_MODE_ARTIST,
+    mhsProjectQuotedAmount: 0,
     currency: seed.currency || CURRENCY_OPTIONS[0].value,
     amount: 0,
     receivedAmount: 0,
@@ -4045,11 +5385,202 @@ function bindTimelineGlobalEvents() {
 }
 
 function updateCreateDraft(patch) {
-  state.createDraft = {
+  const nextDraft = {
     ...state.createDraft,
     ...patch,
   };
+  const feeMode = normalizeFeeMode(nextDraft.feeMode);
+  const amountMode = normalizeMhsProjectAmountMode(nextDraft.mhsProjectAmountMode);
+  const patchKeys = Object.keys(patch || {});
+  const shouldRefreshQuotedAmount =
+    feeMode === "mhs_project" &&
+    amountMode === MHS_PROJECT_AMOUNT_MODE_CLIENT &&
+    patchKeys.some((key) =>
+      ["amount", "source", "feeMode", "feeRate", "usageType", "usageRate", "priority", "priorityRate", "mhsProjectAmountMode"].includes(
+        key,
+      ),
+    );
+
+  if (feeMode !== "mhs_project" || amountMode !== MHS_PROJECT_AMOUNT_MODE_CLIENT) {
+    nextDraft.mhsProjectQuotedAmount = 0;
+  } else if (Object.prototype.hasOwnProperty.call(patch, "mhsProjectQuotedAmount")) {
+    nextDraft.mhsProjectQuotedAmount = normalizeMoneyValue(patch.mhsProjectQuotedAmount);
+  } else if (shouldRefreshQuotedAmount) {
+    nextDraft.mhsProjectQuotedAmount = calculateQuotedAmount(nextDraft);
+  } else {
+    nextDraft.mhsProjectQuotedAmount = normalizeMoneyValue(nextDraft.mhsProjectQuotedAmount);
+  }
+
+  state.createDraft = nextDraft;
 }
+
+function updateCreateSummaryInPlace() {
+  const draft = state.createDraft;
+  if (!draft) return;
+  const netCny = calculateAdjustedNetAmountCny(draft, state.fxSettings);
+  const grossCny = calculateGrossAmountCny(draft, state.fxSettings);
+  const quotedCny = calculateQuotedAmountCny(draft, state.fxSettings);
+  const feeCny = calculateAdjustedFeeAmountCny(draft, state.fxSettings);
+  const receivedCny = normalizeMoneyValue(draft.receivedAmount);
+  const isMhsProj = normalizeFeeMode(draft.feeMode) === "mhs_project";
+  const artistMode = isMhsProj && getCreateAmountInputKind(draft) !== AMOUNT_INPUT_VALUE_KIND_QUOTED;
+  // Inline price mini-row near amount
+  const inlineNet = root.querySelector("#create-inline-net");
+  if (inlineNet) {
+    const parts = [];
+    if (artistMode && quotedCny > 0 && feeCny > 0) {
+      parts.push(`邀请价 ${formatCompactAmount(quotedCny)}`);
+      parts.push(`手续费 ${formatCompactAmount(feeCny)}`);
+      parts.push(`到手 ${formatCompactAmount(netCny)}`);
+    } else {
+      if (grossCny > 0 && feeCny > 0) parts.push(`总价 ${formatCompactAmount(grossCny)}`);
+      if (feeCny > 0) parts.push(`手续费 -${formatCompactAmount(feeCny)}`);
+      parts.push(`实得 ${formatCompactAmount(netCny)}`);
+    }
+    inlineNet.textContent = parts.join("  ·  ");
+  }
+  // Bottom summary capsules
+  const summaryValues = root.querySelectorAll(".mobile-summary-value");
+  if (summaryValues.length >= 2) {
+    summaryValues[0].textContent = formatCompactAmount(netCny);
+    summaryValues[1].textContent = formatCompactAmount(receivedCny);
+  }
+  // Payment progress inline
+  const paymentStatusEl = root.querySelector(".mobile-create-payment-status");
+  const paymentFill = root.querySelector(".mobile-create-payment-progress .mobile-order-progress-fill");
+  if (paymentStatusEl && grossCny > 0) {
+    const remaining = Math.max(grossCny - receivedCny, 0);
+    paymentStatusEl.textContent = remaining <= 0 ? "已结清" : `待收 ${formatCompactAmount(remaining)}`;
+    if (paymentFill) {
+      const pct = Math.min((receivedCny / grossCny) * 100, 100);
+      paymentFill.style.width = `${pct}%`;
+    }
+  }
+}
+
+function getCreateAmountInputKind(draft = state.createDraft) {
+  const feeMode = normalizeFeeMode(draft?.feeMode);
+  if (feeMode === "mhs_window") {
+    return AMOUNT_INPUT_VALUE_KIND_QUOTED;
+  }
+  return feeMode === "mhs_project" &&
+    normalizeMhsProjectAmountMode(draft?.mhsProjectAmountMode) === MHS_PROJECT_AMOUNT_MODE_CLIENT
+    ? AMOUNT_INPUT_VALUE_KIND_QUOTED
+    : AMOUNT_INPUT_VALUE_KIND_BASE;
+}
+
+function buildCreateAmountPreview(baseAmount, draft = state.createDraft) {
+  const usageType = normalizeUsageType(draft?.usageType);
+  const priority = PRIORITIES.includes(draft?.priority) ? draft.priority : PRIORITIES[0];
+  return {
+    ...draft,
+    feeMode: normalizeFeeMode(draft?.feeMode),
+    feeRate: Math.min(Math.max(Number(draft?.feeRate || 0), 0), 1),
+    usageType,
+    usageRate: normalizeUsageRate(draft?.usageRate, usageType),
+    priority,
+    priorityRate: normalizePriorityRate(draft?.priorityRate, priority),
+    amount: normalizeMoneyValue(baseAmount),
+  };
+}
+
+function calculateBaseAmountFromGrossAmount(grossAmount, usageType, usageRate, priority, priorityRate) {
+  const gross = normalizeMoneyValue(grossAmount);
+  const safeUsageType = normalizeUsageType(usageType);
+  const safeUsageRate = normalizeUsageRate(usageRate, safeUsageType);
+  const safePriority = PRIORITIES.includes(priority) ? priority : PRIORITIES[0];
+  const safePriorityRate = normalizePriorityRate(priorityRate, safePriority);
+  if (!gross) return 0;
+  if ((safeUsageType === "私用" || safeUsageRate <= 0) && (safePriority === "普通" || safePriorityRate <= 0)) {
+    return gross;
+  }
+
+  const divisor = 1 + safeUsageRate + safePriorityRate;
+  const approxCents = Math.round((gross / divisor) * 100);
+  const deltas = [0, -1, 1, -2, 2, -3, 3];
+  for (const delta of deltas) {
+    const candidateCents = approxCents + delta;
+    if (candidateCents < 0) continue;
+    const candidate = normalizeMoneyValue(candidateCents / 100);
+    if (
+      Math.abs(
+        calculateGrossAmount({
+          amount: candidate,
+          usageType: safeUsageType,
+          usageRate: safeUsageRate,
+          priority: safePriority,
+          priorityRate: safePriorityRate,
+        }) - gross,
+      ) < 0.000001
+    ) {
+      return candidate;
+    }
+  }
+
+  return normalizeMoneyValue(gross / divisor);
+}
+
+function parseCreateAmountInput(rawValue, draft = state.createDraft) {
+  const normalizedValue = normalizeMoneyValue(rawValue);
+  if (!normalizedValue) return 0;
+  if (getCreateAmountInputKind(draft) !== AMOUNT_INPUT_VALUE_KIND_QUOTED) {
+    return normalizedValue;
+  }
+
+  const preview = buildCreateAmountPreview(normalizedValue, draft);
+  const feeMode = normalizeFeeMode(preview.feeMode);
+  const grossAmount =
+    feeMode === "mhs_project"
+      ? calculateMhsProjectNetFromQuotedAmount(normalizedValue, preview.feeRate)
+      : normalizedValue;
+  return calculateBaseAmountFromGrossAmount(
+    grossAmount,
+    preview.usageType,
+    preview.usageRate,
+    preview.priority,
+    preview.priorityRate,
+  );
+}
+
+function getCreateDisplayedAmount(draft = state.createDraft) {
+  const preview = buildCreateAmountPreview(draft?.amount, draft);
+  if (!preview.amount) return preview.amount;
+  if (getCreateAmountInputKind(preview) !== AMOUNT_INPUT_VALUE_KIND_QUOTED) {
+    return preview.amount;
+  }
+  if (normalizeFeeMode(preview.feeMode) === "mhs_window") {
+    return calculateEffectiveAmount(preview);
+  }
+  return calculateQuotedAmount(preview);
+}
+
+function getCreateAmountLabel(draft = state.createDraft) {
+  const feeMode = normalizeFeeMode(draft?.feeMode);
+  if (feeMode === "mhs_window") {
+    return "橱窗标价";
+  }
+  if (feeMode !== "mhs_project") {
+    return "总稿费";
+  }
+  return getCreateAmountInputKind(draft) === AMOUNT_INPUT_VALUE_KIND_QUOTED ? "邀请总价" : "画师到手";
+}
+
+function getCreateAmountHint(draft = state.createDraft) {
+  const feeMode = normalizeFeeMode(draft?.feeMode);
+  if (feeMode === "mhs_window") {
+    return "到手按橱窗标价 × 0.95 向上取整；用途和加急会联动更新标价";
+  }
+  if (feeMode !== "mhs_project") {
+    return "";
+  }
+  if (getCreateAmountInputKind(draft) === AMOUNT_INPUT_VALUE_KIND_QUOTED) {
+    return "已含当前加价；画师到手按邀请总价 ÷ 1.05 向上取整反算";
+  }
+  return "填画师到手，系统会按企划规则反推出邀请总价";
+}
+
+const DEFAULT_USAGE_RATES = { "私用": 0, "商用": 1.0, "买断": 2.0 };
+const DEFAULT_PRIORITY_RATES = { "普通": 0, "加急": 0.2, "特快": 0.5 };
 
 function updateDraftSelectField(field, value) {
   if (field === "source") {
@@ -4065,6 +5596,18 @@ function updateDraftSelectField(field, value) {
       nextPatch.calendarColor = getSourceColor(nextSource);
     }
     updateCreateDraft(nextPatch);
+    return;
+  }
+  if (field === "usageType") {
+    const nextUsageType = value || USAGE_TYPES[0];
+    const defaultRate = DEFAULT_USAGE_RATES[nextUsageType] ?? 0;
+    updateCreateDraft({ usageType: nextUsageType, usageRate: defaultRate });
+    return;
+  }
+  if (field === "priority") {
+    const nextPriority = value || PRIORITIES[0];
+    const defaultRate = DEFAULT_PRIORITY_RATES[nextPriority] ?? 0;
+    updateCreateDraft({ priority: nextPriority, priorityRate: defaultRate });
     return;
   }
   updateCreateDraft({ [field]: value });
@@ -4095,7 +5638,7 @@ function buildMonthCells(monthDate) {
   const start = new Date(first);
   start.setDate(first.getDate() - firstWeekday);
 
-  return Array.from({ length: 35 }, (_, index) => {
+  return Array.from({ length: 42 }, (_, index) => {
     const date = new Date(start);
     date.setDate(start.getDate() + index);
     return {
@@ -4139,6 +5682,65 @@ function buildCalendarRange(monthDate) {
 
 function shiftMonth(monthDate, delta) {
   return new Date(monthDate.getFullYear(), monthDate.getMonth() + delta, 1);
+}
+
+function syncCalendarMonthToDate(dateKey) {
+  const date = parseDateKey(dateKey);
+  if (!date) return;
+  state.month = new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function selectMobileCalendarDate(dateKey, { syncMonth = false } = {}) {
+  const safeDate = normalizeDateKey(dateKey);
+  if (!safeDate) return;
+  if (syncMonth) syncCalendarMonthToDate(safeDate);
+  state.selectedCalendarDate = safeDate;
+}
+
+function clearMobileCalendarCreateState() {
+  state.calendarCreateMode = false;
+  state.calendarCreateStartDate = "";
+}
+
+function startMobileCalendarCreateMode() {
+  if (state.busy) return;
+  state.calendarCreateMode = true;
+  state.calendarCreateStartDate = "";
+  render();
+}
+
+function cancelMobileCalendarCreateMode({ skipRender = false } = {}) {
+  if (!state.calendarCreateMode && !state.calendarCreateStartDate) return;
+  clearMobileCalendarCreateState();
+  if (!skipRender) render();
+}
+
+function handleMobileCalendarDateSelection(dateKey) {
+  const safeDate = normalizeDateKey(dateKey);
+  if (!safeDate) return;
+  if (state.calendarCreateMode) {
+    handleMobileCalendarCreateDatePick(safeDate);
+    return;
+  }
+  selectMobileCalendarDate(safeDate, { syncMonth: true });
+  render();
+}
+
+function handleMobileCalendarCreateDatePick(dateKey) {
+  const safeDate = normalizeDateKey(dateKey);
+  if (!safeDate) return;
+  if (!state.calendarCreateStartDate) {
+    state.calendarCreateStartDate = safeDate;
+    selectMobileCalendarDate(safeDate, { syncMonth: true });
+    render();
+    return;
+  }
+  const nextRange = getOrderedDateRange(state.calendarCreateStartDate, safeDate);
+  openCreateWithDateContext(
+    nextRange.startDate,
+    nextRange.dueDate,
+    `已按 ${formatCalendarShortDate(nextRange.startDate)} - ${formatCalendarShortDate(nextRange.dueDate)} 预填排期。`,
+  );
 }
 
 function ensureSelectedCalendarDate(range) {
@@ -4196,9 +5798,17 @@ function formatRatePercent(value) {
 
 function buildFeeSummary(draft) {
   const feeRatePercent = formatRatePercent(draft.feeRate);
-  if (draft.feeMode === "mhs_project") return `企划邀请 · ${feeRatePercent}`;
-  if (draft.feeMode === "mhs_window") return `米画师橱窗 · ${feeRatePercent}`;
-  return `默认按比例 · ${feeRatePercent}`;
+  const parts = [];
+  if (draft.feeMode === "mhs_project") parts.push(`企划 ${feeRatePercent}`);
+  else if (draft.feeMode === "mhs_window") parts.push(`橱窗 ${feeRatePercent}`);
+  else if (draft.feeRate > 0) parts.push(`抽成 ${feeRatePercent}`);
+  if (draft.usageType && draft.usageType !== "私用" && draft.usageRate > 0) {
+    parts.push(`${draft.usageType}+${formatRatePercent(draft.usageRate)}`);
+  }
+  if (draft.priority && draft.priority !== "普通" && draft.priorityRate > 0) {
+    parts.push(`${draft.priority}+${formatRatePercent(draft.priorityRate)}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : "无手续费";
 }
 
 function renderChipItems(items, activeValue) {
@@ -4227,11 +5837,14 @@ function renderColorChoices(activeColor) {
 function renderStageItems(stages, activeStage) {
   return stages
     .map(
-      (stage) => `
-        <button class="mobile-stage-item${stage === activeStage ? " is-active" : ""}" type="button" data-stage-choice="${escapeAttribute(stage)}">
-          ${escapeHtml(stage)}
-        </button>
-      `,
+      (stage) => {
+        const isCustom = !BUILT_IN_PRODUCTION_STAGES.includes(stage);
+        return `
+          <button class="mobile-stage-item${stage === activeStage ? " is-active" : ""}" type="button" data-stage-choice="${escapeAttribute(stage)}"${isCustom ? ` data-stage-custom="${escapeAttribute(stage)}"` : ""}>
+            ${escapeHtml(stage)}
+          </button>
+        `;
+      },
     )
     .join("");
 }
@@ -4364,10 +5977,11 @@ function getOrderCalendarColor(order) {
 function getTimelineBarPalette(color) {
   const normalized = normalizeHexColor(color, "#9ba6ab");
   const rgb = hexToRgb(normalized);
+  const darkRgb = { r: Math.round(rgb.r * 0.45), g: Math.round(rgb.g * 0.4), b: Math.round(rgb.b * 0.38) };
   return {
-    background: rgbToRgba(rgb, 0.2),
-    border: rgbToRgba(rgb, 0.5),
-    text: "#1f242b",
+    background: rgbToRgba(rgb, 0.18),
+    border: rgbToRgba(rgb, 0.4),
+    text: `rgb(${darkRgb.r},${darkRgb.g},${darkRgb.b})`,
   };
 }
 
@@ -4397,6 +6011,34 @@ function minDateKey(left, right) {
   if (!safeLeft) return safeRight;
   if (!safeRight) return safeLeft;
   return safeLeft < safeRight ? safeLeft : safeRight;
+}
+
+function getOrderedDateRange(startDate, dueDate) {
+  const safeStart = normalizeDateKey(startDate);
+  const safeDue = normalizeDateKey(dueDate);
+  if (!safeStart || !safeDue) {
+    return { startDate: "", dueDate: "" };
+  }
+  return safeStart <= safeDue
+    ? { startDate: safeStart, dueDate: safeDue }
+    : { startDate: safeDue, dueDate: safeStart };
+}
+
+function getMobileCalendarCreateRangeState(dateKey) {
+  const safeDate = normalizeDateKey(dateKey);
+  const anchorDate = normalizeDateKey(state.calendarCreateStartDate);
+  if (!state.calendarCreateMode || !safeDate || !anchorDate) {
+    return { isAnchor: false, isInRange: false };
+  }
+  const isAnchor = safeDate === anchorDate;
+  const endDate = normalizeDateKey(state.selectedCalendarDate);
+  let isInRange = false;
+  if (endDate && endDate !== anchorDate) {
+    const lo = anchorDate < endDate ? anchorDate : endDate;
+    const hi = anchorDate < endDate ? endDate : anchorDate;
+    isInRange = safeDate >= lo && safeDate <= hi;
+  }
+  return { isAnchor, isInRange };
 }
 
 function formatWeekLabel(dateKey) {
@@ -4441,6 +6083,7 @@ function beginTimelineCreateRange(event) {
     pointerId: event.pointerId,
     track,
     startX: event.clientX,
+    startY: event.clientY,
     startCol: hit.col,
     endCol: hit.col,
     startDate: hit.dateKey,
@@ -4487,25 +6130,74 @@ function beginTimelineMove(event) {
 
 function handleTimelineCreateRangeMove(event) {
   if (!timelineCreateRangeSession || event.pointerId !== timelineCreateRangeSession.pointerId) return;
-  const hit = getTimelineTrackDateHit(timelineCreateRangeSession.track, event.clientX);
-  if (!hit) return;
-  timelineCreateRangeSession.endCol = hit.col;
-  timelineCreateRangeSession.endDate = hit.dateKey;
+  timelineCreateRangeSession.lastClientX = event.clientX;
+  timelineCreateRangeSession.lastClientY = event.clientY;
+  updateTimelineCreateRangeHit(event.clientX, event.clientY);
   if (!timelineCreateRangeSession.moved) {
-    if (Math.abs(event.clientX - timelineCreateRangeSession.startX) < TIMELINE_CREATE_THRESHOLD_PX) return;
+    const dx = event.clientX - timelineCreateRangeSession.startX;
+    const dy = event.clientY - timelineCreateRangeSession.startY;
+    if (Math.sqrt(dx * dx + dy * dy) < TIMELINE_CREATE_THRESHOLD_PX) return;
     timelineCreateRangeSession.moved = true;
     timelineCreateRangeSession.track.classList.add("is-dragging");
   }
   renderTimelineCreateRangePreview(timelineCreateRangeSession);
+  // Auto-scroll when pointer is near viewport edges
+  const vh = window.innerHeight;
+  if (event.clientY > vh - TIMELINE_AUTO_SCROLL_EDGE) {
+    timelineAutoScrollSpeed = Math.min(10, Math.ceil((event.clientY - (vh - TIMELINE_AUTO_SCROLL_EDGE)) / TIMELINE_AUTO_SCROLL_EDGE * 10));
+    startTimelineAutoScroll();
+  } else if (event.clientY < TIMELINE_AUTO_SCROLL_EDGE) {
+    timelineAutoScrollSpeed = -Math.min(10, Math.ceil((TIMELINE_AUTO_SCROLL_EDGE - event.clientY) / TIMELINE_AUTO_SCROLL_EDGE * 10));
+    startTimelineAutoScroll();
+  } else {
+    timelineAutoScrollSpeed = 0;
+  }
+}
+
+function updateTimelineCreateRangeHit(clientX, clientY) {
+  if (!timelineCreateRangeSession) return;
+  const targetTrack = findTimelineTrackAtY(clientY) || timelineCreateRangeSession.track;
+  const hit = getTimelineTrackDateHit(targetTrack, clientX);
+  if (!hit) return;
+  timelineCreateRangeSession.endCol = hit.col;
+  timelineCreateRangeSession.endDate = hit.dateKey;
+}
+
+function startTimelineAutoScroll() {
+  if (timelineAutoScrollRAF) return;
+  function tick() {
+    if (!timelineAutoScrollSpeed || !timelineCreateRangeSession) {
+      timelineAutoScrollRAF = null;
+      return;
+    }
+    window.scrollBy(0, timelineAutoScrollSpeed);
+    // After scroll, re-evaluate which track is under the pointer
+    const s = timelineCreateRangeSession;
+    if (s.lastClientX != null && s.lastClientY != null) {
+      updateTimelineCreateRangeHit(s.lastClientX, s.lastClientY);
+      renderTimelineCreateRangePreview(s);
+    }
+    timelineAutoScrollRAF = requestAnimationFrame(tick);
+  }
+  timelineAutoScrollRAF = requestAnimationFrame(tick);
+}
+
+function stopTimelineAutoScroll() {
+  timelineAutoScrollSpeed = 0;
+  if (timelineAutoScrollRAF) {
+    cancelAnimationFrame(timelineAutoScrollRAF);
+    timelineAutoScrollRAF = null;
+  }
 }
 
 function handleTimelineCreateRangeEnd(event) {
   if (!timelineCreateRangeSession || event.pointerId !== timelineCreateRangeSession.pointerId) return;
+  stopTimelineAutoScroll();
   const session = timelineCreateRangeSession;
   timelineCreateRangeSession = null;
   session.track.classList.remove("is-dragging");
   session.track.releasePointerCapture?.(event.pointerId);
-  clearTimelineCreateRangePreview(session.track);
+  clearAllTimelineCreateRangePreviews();
 
   if (!session.moved) {
     state.selectedCalendarDate = session.startDate;
@@ -4520,10 +6212,11 @@ function handleTimelineCreateRangeEnd(event) {
 
 function handleTimelineCreateRangeCancel(event) {
   if (!timelineCreateRangeSession || event.pointerId !== timelineCreateRangeSession.pointerId) return;
+  stopTimelineAutoScroll();
   const session = timelineCreateRangeSession;
   timelineCreateRangeSession = null;
   session.track.classList.remove("is-dragging");
-  clearTimelineCreateRangePreview(session.track);
+  clearAllTimelineCreateRangePreviews();
 }
 
 function handleTimelineMoveDrag(event) {
@@ -4587,13 +6280,27 @@ function getTimelineTrackDateHit(track, clientX) {
 }
 
 function renderTimelineCreateRangePreview(session) {
-  const track = session.track;
-  const preview = ensureTimelineCreateRangePreview(track);
-  const startCol = Math.min(session.startCol, session.endCol);
-  const endCol = Math.max(session.startCol, session.endCol);
-  preview.hidden = false;
-  preview.style.left = `${(startCol / 7) * 100}%`;
-  preview.style.width = `${((endCol - startCol + 1) / 7) * 100}%`;
+  clearAllTimelineCreateRangePreviews();
+  const rangeStart = minDateKey(session.startDate, session.endDate);
+  const rangeEnd = maxDateKey(session.startDate, session.endDate);
+  if (!rangeStart || !rangeEnd) return;
+
+  const tracks = root.querySelectorAll("[data-timeline-track]");
+  for (const track of tracks) {
+    const weekStart = normalizeDateKey(track.dataset.weekStart);
+    if (!weekStart) continue;
+    const weekEnd = addDaysToDateKey(weekStart, 6);
+    // Skip weeks that don't overlap the selected range
+    if (weekEnd < rangeStart || weekStart > rangeEnd) continue;
+    const clampedStart = rangeStart > weekStart ? rangeStart : weekStart;
+    const clampedEnd = rangeEnd < weekEnd ? rangeEnd : weekEnd;
+    const startCol = daysBetweenDateKeys(weekStart, clampedStart) ?? 0;
+    const endCol = daysBetweenDateKeys(weekStart, clampedEnd) ?? 0;
+    const preview = ensureTimelineCreateRangePreview(track);
+    preview.hidden = false;
+    preview.style.left = `${(startCol / 7) * 100}%`;
+    preview.style.width = `${((endCol - startCol + 1) / 7) * 100}%`;
+  }
 }
 
 function ensureTimelineCreateRangePreview(track) {
@@ -4612,10 +6319,36 @@ function clearTimelineCreateRangePreview(track) {
   track.querySelector(".mobile-timeline-preview")?.remove();
 }
 
+function clearAllTimelineCreateRangePreviews() {
+  root.querySelectorAll("[data-timeline-track] .mobile-timeline-preview").forEach((el) => el.remove());
+}
+
+function findTimelineTrackAtY(clientY) {
+  const tracks = root.querySelectorAll("[data-timeline-track]");
+  for (const track of tracks) {
+    const rect = track.getBoundingClientRect();
+    if (clientY >= rect.top && clientY <= rect.bottom) return track;
+  }
+  // When between or outside tracks, pick the nearest one
+  let closest = null;
+  let closestDist = Infinity;
+  for (const track of tracks) {
+    const rect = track.getBoundingClientRect();
+    const mid = (rect.top + rect.bottom) / 2;
+    const dist = Math.abs(clientY - mid);
+    if (dist < closestDist) {
+      closestDist = dist;
+      closest = track;
+    }
+  }
+  return closest;
+}
+
 function openCreateWithDateContext(startDate, dueDate, note = "") {
   if (state.editingOrderId) {
     state.createDraft = buildCreateDraft();
   }
+  cancelMobileCalendarCreateMode({ skipRender: true });
   state.editingOrderId = "";
   state.confirmDeleteOrderId = "";
   updateCreateDraft({
@@ -4636,6 +6369,8 @@ function resetCreateComposer() {
   state.createContextNote = "";
   state.createFeedbackMessage = "";
   state.createFeedbackTone = "";
+  state.sourceManagerOpen = false;
+  state.sourceDraftName = "";
 }
 
 async function saveCreateOrder() {
@@ -4672,6 +6407,7 @@ async function saveCreateOrder() {
     },
     { fxSettings: state.fxSettings },
   );
+  ensureStagePresetExists(order.productionStage);
   const nextOrders = editingOrder
     ? state.orders.map((item) => (item.id === editingOrder.id ? order : item))
     : [...state.orders, order];
@@ -4693,6 +6429,8 @@ async function saveCreateOrder() {
   state.editingOrderId = "";
   state.confirmDeleteOrderId = "";
   refreshLocalData();
+  state.sourceManagerOpen = false;
+  state.sourceDraftName = "";
   state.createDraft = wasEditing ? buildCreateDraft() : buildDraftFromSeed(order);
   state.createContextNote = "";
   state.createFeedbackTone = cloudError || presetCloudError ? "error" : "success";
@@ -4800,6 +6538,35 @@ async function handleOrderQuickAction(action, id) {
   }
   if (action === "handled") {
     await updateOrdersStatusMobile([id], "已处理", "已将异常稿件记为已处理。");
+    return;
+  }
+  if (action === "cancelException") {
+    const order = state.orders.find((o) => o.id === id);
+    if (!order) return;
+    const previousStatus = order.exceptionPreviousStatus || "进行中";
+    const completedDate = isClosed({ status: previousStatus }) ? order.completedDate || formatDateInput(new Date()) : "";
+    const updated = normalizeOrder({
+      ...order,
+      exceptionType: "无",
+      exceptionResolution: "",
+      exceptionNote: "",
+      refundAmount: 0,
+      exceptionPreviousStatus: null,
+      status: previousStatus,
+      completedDate,
+    }, { fxSettings: state.fxSettings });
+    const nextOrders = state.orders.map((o) => (o.id === id ? updated : o));
+    setBusy(true);
+    try {
+      const { cloudSaved, cloudError } = await persistOrderMutation(nextOrders, [updated]);
+      setOrdersFeedback(
+        composeOrderSyncFeedback("已取消异常状态，稿件恢复正常。", cloudSaved, cloudError),
+        cloudError ? "error" : "success",
+      );
+      render();
+    } finally {
+      setBusy(false);
+    }
   }
 }
 
@@ -5272,6 +7039,11 @@ function importMobileJson(event) {
       event.target.value = "";
     }
   };
+  reader.onerror = () => {
+    setSettingsFeedback("无法读取文件，请确认文件权限后重试。", "error");
+    render();
+    event.target.value = "";
+  };
   reader.readAsText(file);
 }
 
@@ -5362,6 +7134,8 @@ function normalizeBusinessTemplate(input = {}, fxSettings = state.fxSettings) {
       feeRate: input.feeRate,
       usageType: input.usageType,
       usageRate: input.usageRate,
+      priorityRate: input.priorityRate,
+      mhsProjectQuotedAmount: input.mhsProjectQuotedAmount,
       currency: input.currency,
       fxRateSnapshot: input.fxRateSnapshot,
       priority: input.priority,
@@ -5389,6 +7163,8 @@ function normalizeBusinessTemplate(input = {}, fxSettings = state.fxSettings) {
     feeRate: normalizedOrder.feeRate,
     usageType: normalizedOrder.usageType,
     usageRate: normalizedOrder.usageRate,
+    priorityRate: normalizedOrder.priorityRate,
+    mhsProjectQuotedAmount: normalizedOrder.mhsProjectQuotedAmount,
     currency: normalizedOrder.currency,
     fxRateSnapshot: normalizedOrder.fxRateSnapshot,
     priority: normalizedOrder.priority,
@@ -5444,6 +7220,8 @@ function buildBusinessTemplateFromDraft(draft, displayName = "") {
       feeRate: draft.feeRate,
       usageType: draft.usageType,
       usageRate: draft.usageRate,
+      priorityRate: draft.priorityRate,
+      mhsProjectQuotedAmount: draft.mhsProjectQuotedAmount,
       currency: draft.currency,
       priority: draft.priority,
       amount: draft.amount,
@@ -5486,6 +7264,12 @@ function buildEditableDraft(seed = {}) {
     priority: normalized.priority || PRIORITIES[0],
     usageType: normalized.usageType || USAGE_TYPES[0],
     usageRate: normalized.usageRate || 0,
+    priorityRate: normalized.priorityRate || 0,
+    mhsProjectAmountMode:
+      normalized.feeMode === "mhs_project" && normalizeMoneyValue(normalized.mhsProjectQuotedAmount) > 0
+        ? MHS_PROJECT_AMOUNT_MODE_CLIENT
+        : MHS_PROJECT_AMOUNT_MODE_ARTIST,
+    mhsProjectQuotedAmount: normalized.mhsProjectQuotedAmount || 0,
     currency: normalized.currency || CURRENCY_OPTIONS[0].value,
     amount: normalized.amount,
     receivedAmount: normalized.receivedAmount,
@@ -5515,6 +7299,12 @@ function buildDraftFromSeed(seed = {}) {
     priority: normalized.priority,
     usageType: normalized.usageType,
     usageRate: normalized.usageRate,
+    priorityRate: normalized.priorityRate || 0,
+    mhsProjectAmountMode:
+      normalized.feeMode === "mhs_project" && normalizeMoneyValue(normalized.mhsProjectQuotedAmount) > 0
+        ? MHS_PROJECT_AMOUNT_MODE_CLIENT
+        : MHS_PROJECT_AMOUNT_MODE_ARTIST,
+    mhsProjectQuotedAmount: normalized.mhsProjectQuotedAmount || 0,
     currency: normalized.currency,
     amount: normalized.amount,
     receivedAmount: 0,
@@ -5871,9 +7661,93 @@ function setOrdersFeedback(message, tone = "success") {
   state.ordersFeedbackTone = tone === "error" ? "error" : "success";
 }
 
-function setSettingsFeedback(message, tone = "success") {
+function setSettingsFeedback(message, tone = "success", options = {}) {
   state.settingsFeedbackMessage = String(message || "").trim();
   state.settingsFeedbackTone = tone === "error" ? "error" : "success";
+  if (options.reveal) {
+    scheduleSettingsFeedbackReveal();
+  }
+}
+
+async function submitMobileFeedback() {
+  const category = state.feedbackCategory;
+  const content = (state.feedbackContent || "").trim();
+  const nickname = (state.feedbackNickname || "").trim();
+  const contact = (state.feedbackContact || "").trim();
+
+  if (!FEEDBACK_CATEGORIES.includes(category)) {
+    state.feedbackMessage = "先选择一个反馈类型。";
+    state.feedbackMessageTone = "error";
+    render();
+    return;
+  }
+  if (content.length < 5) {
+    state.feedbackMessage = "反馈内容至少写 5 个字。";
+    state.feedbackMessageTone = "error";
+    render();
+    return;
+  }
+  if (content.length > 500) {
+    state.feedbackMessage = "反馈内容最多 500 个字。";
+    state.feedbackMessageTone = "error";
+    render();
+    return;
+  }
+
+  // Cooldown check
+  try {
+    const lastSubmit = Number(window.localStorage.getItem(FEEDBACK_COOLDOWN_KEY) || 0);
+    if (lastSubmit && Date.now() - lastSubmit < FEEDBACK_COOLDOWN_MS) {
+      const remaining = Math.ceil((FEEDBACK_COOLDOWN_MS - (Date.now() - lastSubmit)) / 1000);
+      state.feedbackMessage = `刚提交过一次，${remaining} 秒后再试。`;
+      state.feedbackMessageTone = "error";
+      render();
+      return;
+    }
+  } catch {}
+
+  const client = ensureSupabaseClient();
+  if (!client) {
+    state.feedbackMessage = "当前还没接通反馈服务，请通过 QQ 3535474804 联系开发者。";
+    state.feedbackMessageTone = "error";
+    render();
+    return;
+  }
+
+  state.feedbackSubmitting = true;
+  state.feedbackMessage = "";
+  render();
+
+  try {
+    const row = { nickname, contact, category, content, page_context: "mobile-ios" };
+    // Attach user id when logged in so RLS can match; anonymous submissions still attempt insert
+    if (state.user?.id) row.user_id = state.user.id;
+
+    const { error } = await client.from(FEEDBACK_TABLE).insert(row);
+
+    if (error) {
+      // RLS violation often means auth is required but user isn't logged in
+      const isRLS = /row-level security|policy|permission/i.test(String(error.message || ""));
+      state.feedbackMessage = isRLS
+        ? "提交反馈需要先登录账号。"
+        : `提交失败：${String(error.message || error)}`;
+      state.feedbackMessageTone = "error";
+    } else {
+      window.localStorage.setItem(FEEDBACK_COOLDOWN_KEY, String(Date.now()));
+      state.feedbackMessage = "反馈已收到，感谢你帮我继续把画了么打磨得更顺手 🎉";
+      state.feedbackMessageTone = "success";
+      state.feedbackCategory = "";
+      state.feedbackContent = "";
+      state.feedbackNickname = "";
+      state.feedbackContact = "";
+    }
+  } catch (err) {
+    state.feedbackMessage = `提交异常：${String(err.message || err)}`;
+    state.feedbackMessageTone = "error";
+  } finally {
+    state.feedbackSubmitting = false;
+    render();
+  }
 }
 
 function getSettingsTimestamp(value) {
@@ -6128,6 +8002,120 @@ async function persistCalendarDayMark(dateKey, nextType) {
   }
 }
 
+// ── Calendar long-press context menu ──
+
+function openMobileCalendarContextMenu(dateKey, clientX, clientY) {
+  const ctxMenu = document.getElementById("mobile-ctx-menu");
+  const ctxOverlay = document.getElementById("mobile-ctx-overlay");
+  if (!ctxMenu || !ctxOverlay) return;
+  const safeDate = normalizeDateKey(dateKey);
+  if (!safeDate) return;
+
+  ctxMenu.dataset.date = safeDate;
+  const currentMark = getCalendarDayMarkType(safeDate);
+  const canEdit = !state.busy && !state.calendarDayMarksBusy;
+  const canCreate = !state.busy;
+  const canFinishCreate = canCreate && state.calendarCreateMode && Boolean(state.calendarCreateStartDate);
+  const canStartCreate = canCreate && (!state.calendarCreateMode || !state.calendarCreateStartDate);
+
+  ctxMenu.innerHTML = `
+    <p class="mobile-calendar-context-title">${escapeHtml(formatCalendarDialogDate(safeDate))}</p>
+    <button type="button" class="mobile-calendar-context-btn" data-ctx-action="view-day">
+      ${ICONS.clipboardList(16)} 查看当天列表
+    </button>
+    <button type="button" class="mobile-calendar-context-btn" data-ctx-action="create-single-day" ${canCreate ? "" : "disabled"}>
+      ${ICONS.plus(16)} 新建到此日
+    </button>
+    ${
+      canFinishCreate
+        ? `
+          <button type="button" class="mobile-calendar-context-btn is-active" data-ctx-action="finish-range-create">
+            ${ICONS.calendar(16)} 将此日设为截稿
+          </button>
+        `
+        : canStartCreate
+          ? `
+            <button type="button" class="mobile-calendar-context-btn${state.calendarCreateMode ? " is-active" : ""}" data-ctx-action="start-range-create">
+              ${ICONS.calendar(16)} ${state.calendarCreateMode ? "将此日设为动工" : "从此日开始跨月新建"}
+            </button>
+          `
+          : ""
+    }
+    <div class="mobile-calendar-context-divider"></div>
+    <button type="button" class="mobile-calendar-context-btn${currentMark === CALENDAR_DAY_MARK_REST ? " is-active" : ""}" data-ctx-action="mark-rest" ${canEdit ? "" : "disabled"}>
+      ${ICONS.clock(16)} 标为休息日
+    </button>
+    <button type="button" class="mobile-calendar-context-btn${currentMark === CALENDAR_DAY_MARK_WORK ? " is-active" : ""}" data-ctx-action="mark-work" ${canEdit ? "" : "disabled"}>
+      ${ICONS.sparkles(16)} 标为工作日
+    </button>
+    ${currentMark ? `
+      <button type="button" class="mobile-calendar-context-btn" data-ctx-action="mark-clear" ${canEdit ? "" : "disabled"}>
+        ${ICONS.x(16)} 清除日期标记
+      </button>
+    ` : ""}
+  `;
+
+  ctxOverlay.hidden = false;
+  ctxMenu.hidden = false;
+
+  // Position: prefer below and to the right, but keep within viewport
+  // iPad sidebar: clamp left edge so menu never appears under sidebar
+  const menuRect = ctxMenu.getBoundingClientRect();
+  const sidebarW = (window.innerWidth >= 768 && window.innerHeight >= 700) ? 220 : 0;
+  const minLeft = sidebarW + 12;
+  const maxLeft = window.innerWidth - menuRect.width - 12;
+  const maxTop = Math.max(12, window.innerHeight - menuRect.height - 12);
+  ctxMenu.style.left = `${Math.min(Math.max(clientX, minLeft), maxLeft)}px`;
+  ctxMenu.style.top = `${Math.min(clientY + 8, maxTop)}px`;
+}
+
+function closeMobileCalendarContextMenu() {
+  const ctxMenu = document.getElementById("mobile-ctx-menu");
+  const ctxOverlay = document.getElementById("mobile-ctx-overlay");
+  if (ctxMenu) { ctxMenu.hidden = true; ctxMenu.dataset.date = ""; }
+  if (ctxOverlay) { ctxOverlay.hidden = true; }
+}
+
+function handleCalendarContextAction(action, dateKey) {
+  if (!dateKey) return;
+  switch (action) {
+    case "view-day":
+      selectMobileCalendarDate(dateKey, { syncMonth: true });
+      render();
+      // Scroll to the day detail section
+      requestAnimationFrame(() => {
+        const detail = root.querySelector(".mobile-calendar-mark-bar");
+        if (detail) detail.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+      break;
+    case "create-single-day":
+      openCreateWithDateContext(dateKey, dateKey, "已按当前选中日期预填排期。");
+      break;
+    case "start-range-create":
+      state.calendarCreateMode = true;
+      state.calendarCreateStartDate = dateKey;
+      selectMobileCalendarDate(dateKey, { syncMonth: true });
+      render();
+      break;
+    case "finish-range-create":
+      handleMobileCalendarCreateDatePick(dateKey);
+      break;
+    case "mark-rest": {
+      const current = getCalendarDayMarkType(dateKey);
+      persistCalendarDayMark(dateKey, current === CALENDAR_DAY_MARK_REST ? "" : CALENDAR_DAY_MARK_REST);
+      break;
+    }
+    case "mark-work": {
+      const current = getCalendarDayMarkType(dateKey);
+      persistCalendarDayMark(dateKey, current === CALENDAR_DAY_MARK_WORK ? "" : CALENDAR_DAY_MARK_WORK);
+      break;
+    }
+    case "mark-clear":
+      persistCalendarDayMark(dateKey, "");
+      break;
+  }
+}
+
 function detectFlowType() {
   const search = new URLSearchParams(window.location.search);
   const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
@@ -6227,10 +8215,10 @@ function handleAuthActionError(error, { action, email }) {
       startAuthCooldown("signup", email, retryAfterSeconds);
       startAuthCooldown("resendSignup", email, retryAfterSeconds);
     }
-    setSettingsFeedback(getAuthRateLimitMessage(action, retryAfterSeconds), "error");
+    setSettingsFeedback(getAuthRateLimitMessage(action, retryAfterSeconds), "error", { reveal: true });
     return;
   }
-  setSettingsFeedback(normalizedError.message, "error");
+  setSettingsFeedback(normalizedError.message, "error", { reveal: true });
 }
 
 function parseRetryAfterSeconds(message) {

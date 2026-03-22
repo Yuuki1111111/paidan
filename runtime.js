@@ -23,7 +23,7 @@ export const APP_RUNTIME = {
   target: configuredTarget || (isNativeApp ? "native" : "web"),
   isAppStoreBuild: configuredTarget === "appstore-ios" || (isNativeApp && detectedPlatform === "ios"),
   shouldRegisterServiceWorker: !isNativeApp && configuredTarget !== "appstore-ios",
-  shouldShowSponsorUi: true,
+  shouldShowSponsorUi: !(configuredTarget === "appstore-ios" || (isNativeApp && detectedPlatform === "ios")),
   defaultStorageMode: "",
 };
 

@@ -23,6 +23,7 @@ create table if not exists public.commission_orders (
   notes text not null default '',
   fee_mode text not null default 'standard',
   fee_rate numeric,
+  mhs_project_quoted_amount integer not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -50,6 +51,9 @@ add column if not exists fee_rate numeric;
 
 alter table public.commission_orders
 add column if not exists fee_mode text not null default 'standard';
+
+alter table public.commission_orders
+add column if not exists mhs_project_quoted_amount integer not null default 0;
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -158,6 +162,7 @@ create table if not exists public.business_templates (
   fx_rate_snapshot jsonb not null default '{}'::jsonb,
   priority text not null default '',
   amount integer not null default 0,
+  mhs_project_quoted_amount integer not null default 0,
   received_amount integer not null default 0,
   payment_status text not null default '未收款',
   work_hours numeric not null default 0,
@@ -194,6 +199,9 @@ add column if not exists priority text not null default '';
 
 alter table public.business_templates
 add column if not exists amount integer not null default 0;
+
+alter table public.business_templates
+add column if not exists mhs_project_quoted_amount integer not null default 0;
 
 alter table public.business_templates
 add column if not exists received_amount integer not null default 0;
