@@ -133,6 +133,8 @@ if (existsSync(join(root, "env.js"))) {
     !envConfig.TURNSTILE_SITE_KEY &&
     !envConfig.AUTH_REDIRECT_URL &&
     !envConfig.SUPPORT_URL &&
+    !envConfig.TERMS_URL &&
+    !envConfig.PRIVACY_URL &&
     !envConfig.APP_TARGET
   ) {
     writeFileSync(join(dist, "env.js"), sourceEnv, "utf8");
