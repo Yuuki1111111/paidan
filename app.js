@@ -7822,7 +7822,7 @@ function hasCloudConfig() {
 
 function getTurnstileNote() {
   if (!hasTurnstileConfig()) {
-    return "管理员还没配置 Cloudflare Turnstile，当前不能注册、登录、重发验证邮件或找回密码。";
+    return "支持登录、注册、重发验证邮件和忘记密码；新账号首次登录前需要先完成邮箱验证。";
   }
   if (!state.turnstileRequested) {
     return "点登录、注册、重发验证邮件或忘记密码后，才会按需加载人机验证。";
@@ -7844,7 +7844,7 @@ function getTurnstileNote() {
 
 function getTurnstileActionMessage() {
   if (!hasTurnstileConfig()) {
-    return "管理员还没配置 Cloudflare Turnstile，当前不能注册、登录、重发验证邮件或找回密码。";
+    return "当前无需人机验证；如果是新账号首次登录，请先完成邮箱验证。";
   }
   if (state.turnstileStatus === "loading") {
     return "人机验证还在加载，等一下再试。";
@@ -8231,10 +8231,7 @@ function currentSiteUrl() {
 }
 
 function getLoggedOutAuthMessage() {
-  if (hasTurnstileConfig()) {
-    return "云端模式已开启。登录后每个画师只会看到自己的数据。";
-  }
-  return "云端模式已开启，但还没配置 Cloudflare Turnstile；当前只能登录，不能注册、重发验证邮件或找回密码。";
+  return "云端模式已开启。支持登录、注册、重发验证邮件和忘记密码；新账号首次登录前需要先完成邮箱验证。";
 }
 
 function mapAuthError(error) {
