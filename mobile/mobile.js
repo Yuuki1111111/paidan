@@ -103,6 +103,7 @@ const SHEET_TEMPLATE = "template";
 const SHEET_BUSINESS = "business";
 const SHEET_EXCEPTION = "exception";
 const SHEET_WORK_HOURS = "workHours";
+const SHEET_RECEIVED_AMOUNT = "receivedAmount";
 const SHEET_FEEDBACK = "feedback";
 const FEEDBACK_TABLE = "feedback";
 const FEEDBACK_CATEGORIES = ["Bug", "功能建议", "体验问题", "其他"];
@@ -194,6 +195,9 @@ const state = {
   businessEditingDraft: "",
   workHoursEditorOrderId: "",
   workHoursEditorValue: "",
+  receivedAmountEditorOrderId: "",
+  receivedAmountEditorValue: "",
+  receivedAmountEditorMessage: "",
   expandedOrderId: "",
   showPaywall: false,
   proStatus: {
@@ -2341,7 +2345,7 @@ function renderCreateTab() {
             draft.exceptionType,
             EXCEPTION_TYPES.map((value) => ({ value, label: value })),
           )}
-          ${renderEditableTextareaBlock("备注", "notes", draft.notes, "画面要求、分辨率、文件格式、特殊说明……")}
+          ${renderEditableTextareaBlock("特别备注", "notes", draft.notes, "客户名 | 备注内容 / 画面要求 / 特殊说明")}
         </div>
       </div>
     </div>
@@ -3133,6 +3137,9 @@ function renderSheetOverlay() {
   if (state.activeSheet === SHEET_WORK_HOURS) {
     return renderWorkHoursSheet();
   }
+  if (state.activeSheet === SHEET_RECEIVED_AMOUNT) {
+    return renderReceivedAmountSheet();
+  }
   if (state.activeSheet === SHEET_FEEDBACK) {
     return renderFeedbackSheet();
   }
@@ -3361,6 +3368,52 @@ function renderWorkHoursSheet() {
   `;
 }
 
+function renderReceivedAmountSheet() {
+  const order = state.orders.find((item) => item.id === state.receivedAmountEditorOrderId);
+  if (!order) {
+    state.activeSheet = "";
+    return "";
+  }
+
+  return `
+    <div class="mobile-sheet-shell">
+      <button class="mobile-sheet-backdrop" type="button" data-action="close-sheet" aria-label="关闭弹层"></button>
+      <section class="mobile-sheet-panel mobile-sheet-card">
+        <div class="mobile-sheet-handle"></div>
+        <div class="mobile-sheet-header">
+          <button class="mobile-sheet-icon" type="button" data-action="close-sheet" aria-label="关闭">×</button>
+          <strong>修改已收金额</strong>
+          <button class="mobile-sheet-link" type="button" data-action="save-received-amount">保存</button>
+        </div>
+        <div class="mobile-sheet-scroll">
+          <div class="mobile-sheet-section">
+            <div class="mobile-sheet-section-head">
+              <span>${escapeHtml(order.projectName || "未命名稿件")}</span>
+              <span>${escapeHtml(order.clientName || "")}</span>
+            </div>
+            <p class="mobile-sheet-note">当前总稿费：${formatCompactAmount(convertMoneyToCny(calculateGrossAmount(order), order))}</p>
+            <p class="mobile-sheet-note">当前已收：${formatCompactAmount(convertMoneyToCny(normalizeMoneyValue(order.receivedAmount), order))}</p>
+            <label class="mobile-sheet-input-block">
+              <span>新的已收金额</span>
+              <input class="mobile-sheet-input" type="number" min="0" step="0.01" placeholder="比如 500" value="${escapeAttribute(state.receivedAmountEditorValue)}" data-received-amount-input />
+            </label>
+            <p class="mobile-form-hint">${escapeHtml(getReceivedAmountEditorHint(order, state.receivedAmountEditorValue))}</p>
+            ${
+              state.receivedAmountEditorMessage
+                ? `<div class="mobile-feedback-banner is-error mobile-orders-feedback">${escapeHtml(state.receivedAmountEditorMessage)}</div>`
+                : ""
+            }
+            <div class="mobile-sheet-inline-actions">
+              <button type="button" class="mobile-sheet-secondary" data-action="close-sheet">取消</button>
+              <button type="button" class="mobile-sheet-primary" data-action="save-received-amount">保存金额</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function renderTemplateSheet() {
   const templates = getBusinessTemplateList();
   const repeatSource = getRepeatSource();
@@ -3376,7 +3429,7 @@ function renderTemplateSheet() {
         </div>
         <div class="mobile-sheet-segmented">
           <button type="button" data-action="template-tab-apply" class="${state.templateSheetMode === "apply" ? "is-active" : ""}">套用模板</button>
-          <button type="button" data-action="template-tab-save" class="${state.templateSheetMode === "save" ? "is-active" : ""}">保存模板</button>
+          <button type="button" data-action="template-tab-save" class="${state.templateSheetMode === "save" ? "is-active" : ""}">保存业务模板</button>
         </div>
         <div class="mobile-sheet-scroll">
           ${
@@ -3453,7 +3506,7 @@ function renderTemplateCard(template) {
                 <div><span>币种</span><strong>${escapeHtml(template.currency)}</strong></div>
               </div>
               <div class="mobile-sheet-note">
-                套用后会复用业务、来源、金额和排期配置；项目名、客户、日期与已收金额会重新填写。
+                模板会保存金额、手续费、用途、阶段、备注等配置；客户名和日期不会保存。
               </div>
               <div class="mobile-sheet-inline-actions">
                 ${
@@ -3497,10 +3550,10 @@ function renderTemplateSavePane() {
           <div><span>手续费</span><strong>${escapeHtml(getFeeModeLabel(draft.feeMode))}</strong></div>
         </div>
         <div class="mobile-sheet-note">
-          保存后会复用来源、金额、手续费、用途、阶段、工时和排期颜色。客户与日期不会写进模板。
+          模板会保存金额、手续费、用途、阶段、备注等配置；客户名和日期不会保存。
         </div>
         <div class="mobile-sheet-inline-actions">
-          <button type="button" class="mobile-sheet-primary" data-action="save-current-template">保存模板</button>
+          <button type="button" class="mobile-sheet-primary" data-action="save-current-template">另存为业务模板</button>
         </div>
       </div>
     </div>
@@ -3724,6 +3777,7 @@ function renderOrderCard(order, options = {}) {
   const deadlineWeight = urgency ? "600" : "400";
 
   const isCompleted = isClosed(order);
+  const notesSummary = summarizeOrderNotes(order.notes);
 
   return `
     <article class="mobile-order-card${cardToneClass}" style="--order-source-color:${sourceColor}">
@@ -3761,6 +3815,7 @@ function renderOrderCard(order, options = {}) {
           </div>
           <button type="button" class="mobile-order-amount${isCompleted ? " is-muted" : ""}" data-order-toggle-detail="${escapeAttribute(order.id)}">${amount}</button>
         </div>
+        ${notesSummary ? `<div class="mobile-order-note is-summary" title="${escapeAttribute(order.notes)}">${escapeHtml(notesSummary)}</div>` : ""}
       </div>
       ${isExpanded ? renderAmountDetail(order) : ""}
       ${isExpanded ? renderStageTimeline(order) : ""}
@@ -3898,13 +3953,47 @@ function renderOrderQuickActionButtons(order) {
   if (!isClosed(order)) {
     actions.push(`<button type="button" class="mobile-order-action-icon" data-order-quick-action="complete" data-order-id="${id}"${disabled}>${ICONS.check(14)}<span>归档</span></button>`);
   }
+  if (!isClosed(order) && normalizePaymentStatus(order) !== "已结清" && order.status !== "已处理") {
+    actions.push(`<button type="button" class="mobile-order-action-icon" data-order-quick-action="completeAndSettle" data-order-id="${id}"${disabled}>${ICONS.check(14)}<span>完结并结清</span></button>`);
+  }
   if (normalizePaymentStatus(order) !== "已结清" && order.status !== "已处理") {
-    actions.push(`<button type="button" class="mobile-order-action-icon" data-order-quick-action="settlePayment" data-order-id="${id}"${disabled}>${ICONS.banknote(14)}<span>结清</span></button>`);
+    actions.push(`<button type="button" class="mobile-order-action-icon" data-order-quick-action="settlePayment" data-order-id="${id}"${disabled}>${ICONS.banknote(14)}<span>一键结清</span></button>`);
+  }
+  if (order.status !== "已处理") {
+    actions.push(`<button type="button" class="mobile-order-action-icon" data-order-quick-action="editReceivedAmount" data-order-id="${id}"${disabled}>${ICONS.penTool(14)}<span>改已收</span></button>`);
   }
   if (isClosed(order) && order.status !== "已处理") {
     actions.push(`<button type="button" class="mobile-order-action-icon" data-order-quick-action="revertToActive" data-order-id="${id}"${disabled}>${ICONS.refresh(14)}<span>改回进行中</span></button>`);
   }
   return actions.join("");
+}
+
+function summarizeOrderNotes(value, maxLength = 28) {
+  const normalized = String(value || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength).trimEnd()}…`;
+}
+
+function getSettleAutoFillMessage(order) {
+  return `已结清，已收金额已自动补满至总稿费 ${formatCompactAmount(convertMoneyToCny(calculateGrossAmount(order), order))}。如需调整，请点“改已收”。`;
+}
+
+function getReceivedAmountEditorHint(order, inputValue) {
+  const rawValue = String(inputValue || "").trim();
+  const nextReceived = rawValue === "" ? 0 : Number(rawValue);
+  if (!Number.isFinite(nextReceived) || nextReceived < 0) {
+    return "请输入大于或等于 0 的金额。";
+  }
+  const previewOrder = normalizeOrder(
+    {
+      ...order,
+      receivedAmount: nextReceived,
+      paymentStatus: "",
+    },
+    { fxSettings: state.fxSettings },
+  );
+  return `保存后会自动更新为「${normalizePaymentStatus(previewOrder)}」。`;
 }
 
 function renderOrderExceptionSummary(order) {
@@ -4271,6 +4360,11 @@ function bindEvents() {
 
   root.querySelector("[data-work-hours-input]")?.addEventListener("input", (event) => {
     state.workHoursEditorValue = event.target.value;
+  });
+
+  root.querySelector("[data-received-amount-input]")?.addEventListener("input", (event) => {
+    state.receivedAmountEditorValue = event.target.value;
+    state.receivedAmountEditorMessage = "";
   });
 
   root.querySelectorAll("[data-order-quick-action]").forEach((button) => {
@@ -4880,6 +4974,10 @@ async function handleAction(action, element) {
   }
   if (action === "save-work-hours") {
     await saveWorkHours();
+    return;
+  }
+  if (action === "save-received-amount") {
+    await saveReceivedAmountMobile();
     return;
   }
   if (action === "clear-work-hours") {
@@ -6476,6 +6574,88 @@ async function saveWorkHours() {
   render();
 }
 
+function openReceivedAmountSheet(id) {
+  const order = state.orders.find((item) => item.id === id);
+  if (!order || isAbnormal(order) || order.status === "已处理") return;
+  state.receivedAmountEditorOrderId = id;
+  state.receivedAmountEditorValue = normalizeMoneyValue(order.receivedAmount) > 0 ? String(order.receivedAmount) : "";
+  state.receivedAmountEditorMessage = "";
+  state.activeSheet = SHEET_RECEIVED_AMOUNT;
+  render();
+}
+
+async function saveReceivedAmountMobile() {
+  const order = state.orders.find((item) => item.id === state.receivedAmountEditorOrderId);
+  if (!order) return;
+  const rawValue = String(state.receivedAmountEditorValue || "").trim();
+  const nextReceived = rawValue === "" ? 0 : Number(rawValue);
+  if (!Number.isFinite(nextReceived) || nextReceived < 0) {
+    state.receivedAmountEditorMessage = "请输入大于或等于 0 的金额。";
+    render();
+    return;
+  }
+
+  const updated = normalizeOrder(
+    { ...order, receivedAmount: nextReceived, paymentStatus: "" },
+    { fxSettings: state.fxSettings },
+  );
+  const nextOrders = state.orders.map((item) => (item.id === updated.id ? updated : item));
+  setBusy(true);
+  try {
+    const { cloudSaved, cloudError } = await persistOrderMutation(nextOrders, [updated]);
+    closeActiveSheet();
+    setOrdersFeedback(
+      composeOrderSyncFeedback(
+        `已收金额已更新为 ${formatCompactAmount(convertMoneyToCny(nextReceived, order))}，当前收款状态：${normalizePaymentStatus(updated)}。`,
+        cloudSaved,
+        cloudError,
+      ),
+      cloudError ? "error" : "success",
+    );
+    render();
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function completeAndSettleOrderMobile(id) {
+  const order = state.orders.find((item) => item.id === id);
+  if (!order) return;
+  if (isAbnormal(order)) {
+    setOrdersFeedback("异常单请先完成异常处理，再决定是否完结并结清。", "error");
+    render();
+    return;
+  }
+  if (isClosed(order) || normalizePaymentStatus(order) === "已结清" || order.status === "已处理") {
+    setOrdersFeedback("当前稿件不需要再执行“完结并结清”。", "error");
+    render();
+    return;
+  }
+
+  const updated = normalizeOrder(
+    {
+      ...order,
+      status: "已完成",
+      completedDate: order.completedDate || formatDateInput(new Date()),
+      receivedAmount: calculateGrossAmount(order),
+      paymentStatus: "已结清",
+    },
+    { fxSettings: state.fxSettings },
+  );
+  const nextOrders = state.orders.map((item) => (item.id === updated.id ? updated : item));
+  setBusy(true);
+  try {
+    const { cloudSaved, cloudError } = await persistOrderMutation(nextOrders, [updated]);
+    setOrdersFeedback(
+      composeOrderSyncFeedback("已完结并结清当前稿件。", cloudSaved, cloudError),
+      cloudError ? "error" : "success",
+    );
+    render();
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function deleteOrderMobile(id) {
   const target = state.orders.find((order) => order.id === id);
   if (!target) return;
@@ -6529,8 +6709,21 @@ async function handleOrderQuickAction(action, id) {
     await updateOrdersStatusMobile([id], "已完成", "已完结归档当前稿件。");
     return;
   }
+  if (action === "completeAndSettle") {
+    await completeAndSettleOrderMobile(id);
+    return;
+  }
   if (action === "settlePayment") {
-    await settleOrdersPaymentMobile([id], "已将当前稿件记为已结清。");
+    const order = state.orders.find((item) => item.id === id);
+    const success = await settleOrdersPaymentMobile([id], "已将当前稿件记为已结清。");
+    if (success && order) {
+      setOrdersFeedback(getSettleAutoFillMessage(order), "success");
+      render();
+    }
+    return;
+  }
+  if (action === "editReceivedAmount") {
+    openReceivedAmountSheet(id);
     return;
   }
   if (action === "revertToActive") {
@@ -7655,6 +7848,9 @@ function closeActiveSheet() {
   state.businessEditingDraft = "";
   state.workHoursEditorOrderId = "";
   state.workHoursEditorValue = "";
+  state.receivedAmountEditorOrderId = "";
+  state.receivedAmountEditorValue = "";
+  state.receivedAmountEditorMessage = "";
 }
 
 function setOrdersFeedback(message, tone = "success") {

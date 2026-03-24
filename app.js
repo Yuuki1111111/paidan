@@ -224,6 +224,7 @@ const state = {
   stageDialogOrderId: null,
   stageDialogDraft: "",
   workHoursDialogOrderId: null,
+  receivedAmountDialogOrderId: null,
   calendarDayDialogDate: "",
   calendarDayEntriesByDate: new Map(),
   calendarContextMenuDate: "",
@@ -454,6 +455,19 @@ const elements = {
   saveWorkHours: document.querySelector("#save-work-hours"),
   clearWorkHours: document.querySelector("#clear-work-hours"),
   cancelWorkHours: document.querySelector("#cancel-work-hours"),
+  receivedAmountDialog: document.querySelector("#received-amount-dialog"),
+  receivedAmountDialogClose: document.querySelector("#received-amount-dialog-close"),
+  receivedAmountDialogTitle: document.querySelector("#received-amount-dialog-title"),
+  receivedAmountDialogProject: document.querySelector("#received-amount-dialog-project"),
+  receivedAmountDialogClient: document.querySelector("#received-amount-dialog-client"),
+  receivedAmountDialogStatus: document.querySelector("#received-amount-dialog-status"),
+  receivedAmountDialogGross: document.querySelector("#received-amount-dialog-gross"),
+  receivedAmountDialogCurrent: document.querySelector("#received-amount-dialog-current"),
+  receivedAmountDialogInput: document.querySelector("#received-amount-dialog-input"),
+  receivedAmountDialogHint: document.querySelector("#received-amount-dialog-hint"),
+  receivedAmountDialogMessage: document.querySelector("#received-amount-dialog-message"),
+  saveReceivedAmount: document.querySelector("#save-received-amount"),
+  cancelReceivedAmount: document.querySelector("#cancel-received-amount"),
   authEmail: document.querySelector("#auth-email"),
   authPassword: document.querySelector("#auth-password"),
   signIn: document.querySelector("#sign-in"),
@@ -993,6 +1007,24 @@ function bindEvents() {
   elements.workHoursDialog?.addEventListener("cancel", (event) => {
     event.preventDefault();
     closeWorkHoursDialog();
+  });
+  elements.receivedAmountDialogClose.addEventListener("click", closeReceivedAmountDialog);
+  elements.cancelReceivedAmount.addEventListener("click", closeReceivedAmountDialog);
+  elements.saveReceivedAmount.addEventListener("click", () => {
+    void saveReceivedAmount();
+  });
+  elements.receivedAmountDialogInput.addEventListener("input", () => {
+    syncReceivedAmountDialogHint();
+  });
+  elements.receivedAmountDialogInput.addEventListener("blur", () => {
+    elements.receivedAmountDialogInput.value = elements.receivedAmountDialogInput.value
+      ? formatMoney(elements.receivedAmountDialogInput.value).replace(/\.00$/, "")
+      : "";
+    syncReceivedAmountDialogHint();
+  });
+  elements.receivedAmountDialog?.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeReceivedAmountDialog();
   });
   elements.calendarGrid?.addEventListener("click", (event) => {
     const itemButton = event.target.closest('[data-action="jumpOrder"]');
@@ -3426,6 +3458,10 @@ function renderSyncPanel() {
   elements.saveWorkHours.disabled = state.busy;
   elements.clearWorkHours.disabled = state.busy;
   elements.cancelWorkHours.disabled = state.busy;
+  elements.receivedAmountDialogClose.disabled = state.busy;
+  elements.receivedAmountDialogInput.disabled = state.busy;
+  elements.saveReceivedAmount.disabled = state.busy;
+  elements.cancelReceivedAmount.disabled = state.busy;
   const presetControlsDisabled = !canEditOrders || state.busy || state.businessPresetBusy;
   elements.businessPresetDialogClose.disabled = presetControlsDisabled;
   elements.businessPresetDialogDone.disabled = presetControlsDisabled;
@@ -3455,6 +3491,9 @@ function renderSyncPanel() {
   }
   if (elements.workHoursDialog?.open) {
     syncWorkHoursDialogHint();
+  }
+  if (elements.receivedAmountDialog?.open) {
+    syncReceivedAmountDialogHint();
   }
   if (elements.businessPresetDialog?.open) {
     renderBusinessPresetDialog();
@@ -5530,7 +5569,11 @@ function renderTable(
       <td>${escapeHtml(order.clientName)}</td>
       <td>
         <strong>${escapeHtml(order.projectName)}</strong>
-        ${order.notes ? `<div class="legend-row">${escapeHtml(order.notes)}</div>` : ""}
+        ${
+          order.notes
+            ? `<div class="legend-row order-note-summary" title="${escapeHtml(order.notes)}">${escapeHtml(summarizeOrderNotes(order.notes))}</div>`
+            : ""
+        }
       </td>
       <td>
         <div class="chip-group">
@@ -5568,8 +5611,12 @@ function renderTable(
       const { action, id } = event.currentTarget.dataset;
       if (action === "complete") {
         updateOrderStatus(id, "已完成");
+      } else if (action === "completeAndSettle") {
+        completeAndSettleOrder(id);
       } else if (action === "settlePayment") {
         settleOrderPayment(id);
+      } else if (action === "editReceivedAmount") {
+        openReceivedAmountDialog(id);
       } else if (action === "revertToActive") {
         revertOrderToActive(id);
       } else if (action === "handled") {
@@ -5769,9 +5816,19 @@ function renderQuickActionButtons(order) {
       `<button class="link-button" data-action="complete" data-id="${escapedId}" ${disabled}>完结归档</button>`,
     );
   }
+  if (!isClosed(order) && normalizePaymentStatus(order) !== "已结清" && order.status !== "已处理") {
+    actions.push(
+      `<button class="link-button" data-action="completeAndSettle" data-id="${escapedId}" ${disabled}>完结并结清</button>`,
+    );
+  }
   if (normalizePaymentStatus(order) !== "已结清" && order.status !== "已处理") {
     actions.push(
-      `<button class="link-button" data-action="settlePayment" data-id="${escapedId}" ${disabled}>记为已结清</button>`,
+      `<button class="link-button" data-action="settlePayment" data-id="${escapedId}" ${disabled}>一键结清</button>`,
+    );
+  }
+  if (order.status !== "已处理") {
+    actions.push(
+      `<button class="link-button" data-action="editReceivedAmount" data-id="${escapedId}" ${disabled}>改已收</button>`,
     );
   }
   if (isClosed(order) && order.status !== "已处理") {
@@ -5780,6 +5837,22 @@ function renderQuickActionButtons(order) {
     );
   }
   return actions.join("");
+}
+
+function summarizeOrderNotes(value, maxLength = 34) {
+  const normalized = String(value || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength).trimEnd()}…`;
+}
+
+function formatOrderMoneyWithOriginal(value, order) {
+  return formatMoneyWithOriginal(convertMoneyToCny(value, order), value, normalizeCurrency(order.currency));
+}
+
+function getSettleAutoFillMessage(order) {
+  const grossAmount = calculateGrossAmount(order);
+  return `已结清，已收金额已自动补满至总稿费 ${formatOrderMoneyWithOriginal(grossAmount, order)}。如需调整，请点击“改已收”。`;
 }
 
 function toggleSelection(id, checked) {
@@ -5901,7 +5974,12 @@ async function updateOrderStatus(id, status) {
 }
 
 async function settleOrderPayment(id) {
-  await settleOrdersPayment([id], "收款状态已更新为已结清。");
+  const order = state.orders.find((item) => item.id === id);
+  if (!order) return;
+  const success = await settleOrdersPayment([id], "收款状态已更新为已结清。");
+  if (success) {
+    updateAuthUi(getSettleAutoFillMessage(order));
+  }
 }
 
 async function revertOrderToActive(id) {
@@ -5924,6 +6002,42 @@ async function revertOrderToActive(id) {
     await persistOrders(updatedOrders, [id]);
     if (state.editingId === id) resetForm();
     updateAuthUi("已改回进行中。");
+  } catch (error) {
+    updateAuthUi(mapAuthError(error));
+  } finally {
+    setBusy(false);
+    render();
+  }
+}
+
+async function completeAndSettleOrder(id) {
+  const order = state.orders.find((item) => item.id === id);
+  if (!order) return;
+  if (isAbnormal(order)) {
+    updateAuthUi("异常单请先完成异常处理，再决定是否完结并结清。");
+    return;
+  }
+  if (isClosed(order) || normalizePaymentStatus(order) === "已结清" || order.status === "已处理") {
+    updateAuthUi("当前稿件不需要再执行“完结并结清”。");
+    return;
+  }
+
+  const today = formatDateInput(new Date());
+  const updatedOrders = state.orders.map((item) => {
+    if (item.id !== id) return item;
+    return normalizeOrder({
+      ...item,
+      status: "已完成",
+      completedDate: item.completedDate || today,
+      receivedAmount: calculateGrossAmount(item),
+      paymentStatus: "已结清",
+    });
+  });
+
+  setBusy(true);
+  try {
+    await persistOrders(updatedOrders, [id]);
+    updateAuthUi("已完结并结清当前稿件。");
   } catch (error) {
     updateAuthUi(mapAuthError(error));
   } finally {
@@ -8651,6 +8765,23 @@ function openWorkHoursDialog(id) {
   elements.workHoursDialog.showModal();
 }
 
+function openReceivedAmountDialog(id) {
+  const order = state.orders.find((item) => item.id === id);
+  if (!order || !elements.receivedAmountDialog || isAbnormal(order) || order.status === "已处理") return;
+
+  state.receivedAmountDialogOrderId = id;
+  elements.receivedAmountDialogTitle.textContent = `修改已收：${order.projectName}`;
+  elements.receivedAmountDialogProject.textContent = order.projectName;
+  elements.receivedAmountDialogClient.textContent = order.clientName;
+  elements.receivedAmountDialogStatus.innerHTML = renderStaticStatusChip(normalizePaymentStatus(order));
+  elements.receivedAmountDialogGross.textContent = `当前总稿费：${formatOrderMoneyWithOriginal(calculateGrossAmount(order), order)}`;
+  elements.receivedAmountDialogCurrent.textContent = `当前已收：${formatOrderMoneyWithOriginal(normalizeMoneyValue(order.receivedAmount), order)}`;
+  elements.receivedAmountDialogInput.value = formatMoney(order.receivedAmount);
+  elements.receivedAmountDialogMessage.textContent = "";
+  syncReceivedAmountDialogHint();
+  elements.receivedAmountDialog.showModal();
+}
+
 function closeExceptionDialog() {
   state.exceptionDialogOrderId = null;
   elements.exceptionDialogMessage.textContent = "";
@@ -8673,6 +8804,14 @@ function closeWorkHoursDialog() {
   elements.workHoursDialogMessage.textContent = "";
   if (elements.workHoursDialog?.open) {
     elements.workHoursDialog.close();
+  }
+}
+
+function closeReceivedAmountDialog() {
+  state.receivedAmountDialogOrderId = null;
+  elements.receivedAmountDialogMessage.textContent = "";
+  if (elements.receivedAmountDialog?.open) {
+    elements.receivedAmountDialog.close();
   }
 }
 
@@ -8749,6 +8888,24 @@ function syncWorkHoursDialogHint() {
     hourlyRate != null
       ? `按 ${formatHours(hours)} 小时计算，参考时薪约 ${formatCnyMoney(hourlyRate)}/小时。`
       : `已填写 ${formatHours(hours)} 小时，但当前预计实得为 ¥0.00，暂时算不出参考时薪。`;
+}
+
+function syncReceivedAmountDialogHint() {
+  const order = state.orders.find((item) => item.id === state.receivedAmountDialogOrderId);
+  if (!order || !elements.receivedAmountDialogHint) return;
+  const rawValue = String(elements.receivedAmountDialogInput?.value || "").trim();
+  const nextReceived = rawValue === "" ? 0 : Number(rawValue);
+  if (!Number.isFinite(nextReceived) || nextReceived < 0) {
+    elements.receivedAmountDialogHint.textContent = "请输入大于或等于 0 的金额。";
+    return;
+  }
+
+  const previewOrder = normalizeOrder({
+    ...order,
+    receivedAmount: nextReceived,
+    paymentStatus: "",
+  });
+  elements.receivedAmountDialogHint.textContent = `保存后会自动更新为「${normalizePaymentStatus(previewOrder)}」。`;
 }
 
 function syncExceptionDialogRefundUi() {
@@ -8896,6 +9053,41 @@ async function saveWorkHours() {
     closeWorkHoursDialog();
   } catch (error) {
     elements.workHoursDialogMessage.textContent = mapAuthError(error);
+  } finally {
+    setBusy(false);
+    render();
+  }
+}
+
+async function saveReceivedAmount() {
+  const order = state.orders.find((item) => item.id === state.receivedAmountDialogOrderId);
+  if (!order) return;
+
+  const rawValue = String(elements.receivedAmountDialogInput.value || "").trim();
+  const nextReceived = rawValue === "" ? 0 : Number(rawValue);
+  if (!Number.isFinite(nextReceived) || nextReceived < 0) {
+    elements.receivedAmountDialogMessage.textContent = "请输入大于或等于 0 的金额。";
+    return;
+  }
+
+  const nextOrder = normalizeOrder({
+    ...order,
+    receivedAmount: nextReceived,
+    paymentStatus: "",
+  });
+
+  setBusy(true);
+  try {
+    await persistOrders(
+      state.orders.map((item) => (item.id === order.id ? nextOrder : item)),
+      [order.id],
+    );
+    updateAuthUi(
+      `已收金额已更新为 ${formatOrderMoneyWithOriginal(nextReceived, order)}，当前收款状态：${normalizePaymentStatus(nextOrder)}。`,
+    );
+    closeReceivedAmountDialog();
+  } catch (error) {
+    elements.receivedAmountDialogMessage.textContent = mapAuthError(error);
   } finally {
     setBusy(false);
     render();

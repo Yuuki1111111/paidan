@@ -471,17 +471,23 @@
                 <select id="exception-type" name="exceptionType" required></select>
               </label>
               <label class="full-width">
-                备注
-                <textarea id="notes" name="notes" rows="3" maxlength="140"></textarea>
+                特别备注
+                <textarea
+                  id="notes"
+                  name="notes"
+                  rows="3"
+                  maxlength="140"
+                  placeholder="客户名 | 备注内容 / 画面要求 / 特殊说明"
+                ></textarea>
               </label>
               <div class="form-actions full-width">
                 <button type="submit" class="primary-button">保存稿件</button>
-                <button type="button" id="save-business-template" class="ghost-button">存为业务模板</button>
+                <button type="button" id="save-business-template" class="ghost-button">另存为业务模板</button>
                 <button type="button" id="duplicate-last" class="ghost-button">重复上一单</button>
                 <button type="button" id="reset-form" class="ghost-button">清空表单</button>
               </div>
               <p class="legend-row field-note business-template-note full-width">
-                先把这单的常用内容调好，再点“存为业务模板”；除了老板名和 3 个日期外，其他字段都会跟着业务快捷项一起套用。异常模板只保存“异常类型”。
+                模板会保存金额、手续费、用途、阶段、备注等配置；客户名和日期不会保存。异常模板只保存“异常类型”。
               </p>
             </form>
           </section>
@@ -1083,6 +1089,60 @@
                 <button type="button" id="save-work-hours" class="primary-button">保存工时</button>
                 <button type="button" id="clear-work-hours" class="ghost-button">清空工时</button>
                 <button type="button" id="cancel-work-hours" class="ghost-button">取消</button>
+              </div>
+            </div>
+          </form>
+        </dialog>
+
+        <dialog id="received-amount-dialog" class="stage-dialog">
+          <form method="dialog" class="stage-dialog-form">
+            <div class="stage-dialog-header">
+              <div>
+                <p class="section-tag">收款</p>
+                <h2 id="received-amount-dialog-title">修改已收金额</h2>
+              </div>
+              <button
+                type="button"
+                id="received-amount-dialog-close"
+                class="ghost-button small-button"
+              >
+                关闭
+              </button>
+            </div>
+            <div class="stage-dialog-grid">
+              <article class="stage-summary-card">
+                <p class="legend-row">项目</p>
+                <strong id="received-amount-dialog-project"></strong>
+                <p class="legend-row">客户</p>
+                <strong id="received-amount-dialog-client"></strong>
+                <p class="legend-row">当前状态</p>
+                <div id="received-amount-dialog-status"></div>
+              </article>
+
+              <div class="stage-fields">
+                <p id="received-amount-dialog-gross" class="legend-row"></p>
+                <p id="received-amount-dialog-current" class="legend-row"></p>
+                <label>
+                  新的已收金额
+                  <input
+                    id="received-amount-dialog-input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    inputmode="decimal"
+                    placeholder="比如 500"
+                  />
+                </label>
+                <p id="received-amount-dialog-hint" class="legend-row">
+                  这里只改已收金额，收款状态会按现有规则自动更新。
+                </p>
+                <p id="received-amount-dialog-message" class="legend-row"></p>
+              </div>
+            </div>
+            <div class="stage-dialog-actions">
+              <div class="hero-actions">
+                <button type="button" id="save-received-amount" class="primary-button">保存金额</button>
+                <button type="button" id="cancel-received-amount" class="ghost-button">取消</button>
               </div>
             </div>
           </form>

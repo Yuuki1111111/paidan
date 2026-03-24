@@ -1270,6 +1270,14 @@ h2 {
   margin-top: 2px;
 }
 
+.order-note-summary {
+  display: block;
+  max-width: min(42ch, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .business-preset-dialog-message {
   min-height: 20px;
 }

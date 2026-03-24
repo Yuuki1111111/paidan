@@ -529,6 +529,14 @@ textarea {
   color: var(--mobile-muted);
 }
 
+.mobile-order-note.is-summary {
+  margin-top: 8px;
+  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ── Order card action bar (icon + label, show on expand) ── */
 .mobile-order-actions-bar {
   display: flex;
