@@ -796,20 +796,13 @@ function bindEvents() {
     void addBusinessPresetFromDialog();
   });
   elements.businessPresetBuiltInList.addEventListener("click", (event) => {
-    const templateButton = event.target.closest("[data-remove-business-template]");
-    if (!templateButton) return;
-    const name = normalizeBusinessTypeValue(templateButton.dataset.removeBusinessTemplate);
+    const presetButton = event.target.closest("[data-remove-business-preset]");
+    if (!presetButton) return;
+    const name = normalizeBusinessTypeValue(presetButton.dataset.removeBusinessPreset);
     if (!name) return;
-    void removeBusinessTemplateFromDialog(name);
+    void removeBusinessPresetFromDialog(name);
   });
   elements.businessPresetCustomList.addEventListener("click", (event) => {
-    const templateButton = event.target.closest("[data-remove-business-template]");
-    if (templateButton) {
-      const templateName = normalizeBusinessTypeValue(templateButton.dataset.removeBusinessTemplate);
-      if (!templateName) return;
-      void removeBusinessTemplateFromDialog(templateName);
-      return;
-    }
     const button = event.target.closest("[data-remove-business-preset]");
     if (!button) return;
     const name = normalizeBusinessTypeValue(button.dataset.removeBusinessPreset);
@@ -831,9 +824,17 @@ function bindEvents() {
   elements.templatePickerDialogClose?.addEventListener("click", closeTemplatePickerDialog);
   elements.templatePickerDialogDone?.addEventListener("click", closeTemplatePickerDialog);
   elements.templatePickerList?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-apply-business-template]");
-    if (!button) return;
-    const businessType = normalizeBusinessTypeValue(button.dataset.applyBusinessTemplate);
+    const deleteButton = event.target.closest("[data-delete-business-template]");
+    if (deleteButton) {
+      const businessType = normalizeBusinessTypeValue(deleteButton.dataset.deleteBusinessTemplate);
+      if (!businessType) return;
+      if (!confirm(`确定删除「${businessType}」模板吗？`)) return;
+      void removeBusinessTemplateFromPicker(businessType);
+      return;
+    }
+    const applyButton = event.target.closest("[data-apply-business-template]");
+    if (!applyButton) return;
+    const businessType = normalizeBusinessTypeValue(applyButton.dataset.applyBusinessTemplate);
     if (!businessType) return;
     const template = getBusinessTemplate(businessType);
     if (!template) return;
@@ -6808,18 +6809,6 @@ function renderBusinessPresetItem(value, { removableBusiness = false, controlsDi
       </div>
       <div class="business-preset-actions">
         ${
-          templateExists
-            ? `<button
-                type="button"
-                class="ghost-button small-button"
-                data-remove-business-template="${escapeHtml(normalized)}"
-                ${controlsDisabled ? "disabled" : ""}
-              >
-                删除模板
-              </button>`
-            : ""
-        }
-        ${
           removableBusiness
             ? `<button
                 type="button"
@@ -6921,9 +6910,19 @@ function renderTemplatePickerItem(template, controlsDisabled = false) {
           <span class="business-template-picker-color"><i style="background:${escapeHtml(previewColor)};"></i>${normalizeCalendarColor(normalized.calendarColor) ? "自定义颜色" : "来源默认色"}</span>
         </div>
       </div>
-      <button type="button" class="primary-button small-button" data-apply-business-template="${escapeHtml(
-        normalized.businessType,
-      )}" ${controlsDisabled ? "disabled" : ""}>套用</button>
+      <div class="business-template-picker-actions">
+        <button
+          type="button"
+          class="ghost-button small-button"
+          data-delete-business-template="${escapeHtml(normalized.businessType)}"
+          ${controlsDisabled ? "disabled" : ""}
+        >
+          删除模板
+        </button>
+        <button type="button" class="primary-button small-button" data-apply-business-template="${escapeHtml(
+          normalized.businessType,
+        )}" ${controlsDisabled ? "disabled" : ""}>套用</button>
+      </div>
     </article>
   `;
 }
@@ -8836,6 +8835,26 @@ async function removeBusinessTemplateFromDialog(value) {
     elements.businessPresetDialogMessage.textContent = result.remoteError
       ? `已删除「${normalized}」模板，但云端同步失败：${mapAuthError(result.remoteError)}`
       : `已删除「${normalized}」模板。`;
+  } finally {
+    state.businessPresetBusy = false;
+    render();
+  }
+}
+
+async function removeBusinessTemplateFromPicker(value) {
+  if (state.busy || state.businessPresetBusy) return;
+  const normalized = normalizeBusinessTypeValue(value);
+  if (!normalized || !getBusinessTemplate(normalized)) return;
+
+  state.businessPresetBusy = true;
+  renderSyncPanel();
+  try {
+    const result = await removeBusinessTemplate(normalized);
+    updateAuthUi(
+      result.remoteError
+        ? `已删除「${normalized}」模板，但云端同步失败：${mapAuthError(result.remoteError)}`
+        : `已删除「${normalized}」模板。`,
+    );
   } finally {
     state.businessPresetBusy = false;
     render();

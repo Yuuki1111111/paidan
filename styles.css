@@ -1390,6 +1390,14 @@ h2 {
   flex: 0 0 auto;
 }
 
+.business-template-picker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
 .order-note-summary {
   display: block;
   max-width: min(42ch, 100%);
@@ -3744,6 +3752,15 @@ button.chip.clickable:hover {
 
   .business-preset-tags,
   .business-preset-actions {
+    justify-content: flex-start;
+  }
+
+  .business-template-picker-item {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .business-template-picker-actions {
     justify-content: flex-start;
   }
 
