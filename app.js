@@ -4511,8 +4511,10 @@ function renderCalendarTags(orders, monthDate, range, dayEntriesByDate) {
           visibleEntries.length
             ? visibleEntries
                 .map(
-                  (entry) =>
-                    `<button
+                  (entry) => {
+                    const customColor = normalizeCalendarColor(entry.order.calendarColor);
+                    const itemStyle = customColor ? getCalendarItemInlineStyle(customColor) : "";
+                    return `<button
                       type="button"
                       class="calendar-item ${escapeHtml(entry.type)}${entry.done ? " is-done" : ""}${
                         useCompactLabel ? " compact" : " full"
@@ -4521,6 +4523,7 @@ function renderCalendarTags(orders, monthDate, range, dayEntriesByDate) {
                       data-id="${escapeHtml(entry.order.id)}"
                       title="${escapeHtml(entry.label)}"
                       aria-label="${escapeHtml(entry.label)}"
+                      ${itemStyle}
                     >${
                       useCompactLabel
                         ? `<span class="calendar-item-compact"><span class="calendar-item-type">${escapeHtml(
@@ -4529,7 +4532,8 @@ function renderCalendarTags(orders, monthDate, range, dayEntriesByDate) {
                             entry.compactProjectLabel,
                           )}</span></span>`
                         : escapeHtml(entry.label)
-                    }</button>`,
+                    }</button>`;
+                  },
                 )
                 .join("")
             : ""
@@ -4851,6 +4855,11 @@ function getOrderCalendarColor(order) {
   const custom = normalizeCalendarColor(order?.calendarColor);
   if (custom) return custom;
   return getSourceColor(order?.source);
+}
+
+function getCalendarItemInlineStyle(hexColor) {
+  const rgb = hexToRgb(hexColor);
+  return `style="background:${rgbToRgba(rgb, 0.18)};border-color:${rgbToRgba(rgb, 0.32)};"`;
 }
 
 function getTimelineBarPalette(color) {
