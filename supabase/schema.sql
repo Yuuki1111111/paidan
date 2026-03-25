@@ -161,6 +161,7 @@ create table if not exists public.business_templates (
   currency text not null default 'CNY',
   fx_rate_snapshot jsonb not null default '{}'::jsonb,
   priority text not null default '',
+  priority_rate numeric not null default 0,
   amount integer not null default 0,
   mhs_project_quoted_amount integer not null default 0,
   received_amount integer not null default 0,
@@ -169,6 +170,7 @@ create table if not exists public.business_templates (
   status text not null default '待沟通',
   exception_type text not null default '无',
   notes text not null default '',
+  calendar_color text not null default '',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -196,6 +198,9 @@ add column if not exists fx_rate_snapshot jsonb not null default '{}'::jsonb;
 
 alter table public.business_templates
 add column if not exists priority text not null default '';
+
+alter table public.business_templates
+add column if not exists priority_rate numeric not null default 0;
 
 alter table public.business_templates
 add column if not exists amount integer not null default 0;

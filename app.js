@@ -68,7 +68,7 @@ const CURRENCY_OPTIONS = [
 const FEE_MODES = [
   { value: "standard", label: "默认按比例" },
   { value: "mhs_project", label: "米画师企划邀请（可切换到手/总价）" },
-  { value: "mhs_window", label: "米画师橱窗（满20减1）" },
+  { value: "mhs_window", label: "米画师橱窗（标价 x 0.95 向上取整）" },
 ];
 const MHS_PROJECT_AMOUNT_MODE_ARTIST = "artist_net";
 const MHS_PROJECT_AMOUNT_MODE_CLIENT = "client_quote";
@@ -2108,7 +2108,7 @@ async function loadRemoteBusinessTemplates() {
   const { data, error } = await state.supabase
     .from(BUSINESS_TEMPLATE_TABLE)
     .select(
-      "project_name,business_type,production_stage,source,fee_mode,fee_rate,usage_type,usage_rate,currency,fx_rate_snapshot,priority,amount,mhs_project_quoted_amount,received_amount,payment_status,work_hours,status,exception_type,notes,calendar_color,updated_at",
+      "project_name,business_type,production_stage,source,fee_mode,fee_rate,usage_type,usage_rate,currency,fx_rate_snapshot,priority,priority_rate,amount,mhs_project_quoted_amount,received_amount,payment_status,work_hours,status,exception_type,notes,calendar_color,updated_at",
     )
     .eq("user_id", state.user.id);
   if (error) throw error;
@@ -2134,7 +2134,7 @@ async function upsertRemoteBusinessTemplates(templates) {
     .from(BUSINESS_TEMPLATE_TABLE)
     .upsert(payload, { onConflict: "user_id,business_type" })
     .select(
-      "project_name,business_type,production_stage,source,fee_mode,fee_rate,usage_type,usage_rate,currency,fx_rate_snapshot,priority,amount,mhs_project_quoted_amount,received_amount,payment_status,work_hours,status,exception_type,notes,calendar_color,updated_at",
+      "project_name,business_type,production_stage,source,fee_mode,fee_rate,usage_type,usage_rate,currency,fx_rate_snapshot,priority,priority_rate,amount,mhs_project_quoted_amount,received_amount,payment_status,work_hours,status,exception_type,notes,calendar_color,updated_at",
     );
   if (error) throw error;
 
@@ -7843,6 +7843,8 @@ function normalizeOrder(input = {}) {
   const receivedAmount = normalizeMoneyValue(input.receivedAmount);
   const usageType = normalizeUsageType(input.usageType);
   const usageRate = normalizeUsageRate(input.usageRate, usageType);
+  const priority = PRIORITIES.includes(input.priority) ? input.priority : PRIORITIES[0];
+  const priorityRate = normalizePriorityRate(input.priorityRate, priority);
   const currency = normalizeCurrency(input.currency);
   const workHours = sanitizeWorkHours(input.workHours);
   const rawFeeRate = input.feeRate;
@@ -7880,12 +7882,15 @@ function normalizeOrder(input = {}) {
     currency,
     fxRateSnapshot,
     calendarColor,
-    priority: input.priority || PRIORITIES[0],
+    priority,
+    priorityRate,
     amount,
     mhsProjectQuotedAmount,
     receivedAmount,
     workHours,
-    paymentStatus: input.paymentStatus || inferPaymentStatus({ amount, receivedAmount, usageType, usageRate }),
+    paymentStatus:
+      input.paymentStatus ||
+      inferPaymentStatus({ amount, receivedAmount, usageType, usageRate, priority, priorityRate }),
     feeRate: normalizedFeeRate,
     startDate: input.startDate || "",
     dueDate: input.dueDate || "",
@@ -7916,6 +7921,7 @@ function rowToOrder(row) {
     fxRateSnapshot: row.fx_rate_snapshot,
     calendarColor: row.calendar_color,
     priority: row.priority,
+    priorityRate: row.priority_rate,
     amount: row.amount,
     mhsProjectQuotedAmount: row.mhs_project_quoted_amount,
     receivedAmount: row.received_amount,
@@ -7952,6 +7958,7 @@ function orderToRow(order, userId) {
     fx_rate_snapshot: normalizeFxRateSnapshot(order.fxRateSnapshot, normalizeCurrency(order.currency)),
     calendar_color: normalizeCalendarColor(order.calendarColor),
     priority: order.priority,
+    priority_rate: Number(order.priorityRate || 0),
     amount: normalizeMoneyValue(order.amount),
     mhs_project_quoted_amount: normalizeMoneyValue(order.mhsProjectQuotedAmount),
     received_amount: normalizeMoneyValue(order.receivedAmount),
@@ -7985,6 +7992,7 @@ function businessTemplateRowToRecord(row) {
     currency: row.currency,
     fxRateSnapshot: row.fx_rate_snapshot,
     priority: row.priority,
+    priorityRate: row.priority_rate,
     amount: row.amount,
     mhsProjectQuotedAmount: row.mhs_project_quoted_amount,
     receivedAmount: row.received_amount,
@@ -8014,6 +8022,7 @@ function businessTemplateToRow(template, userId) {
     fx_rate_snapshot: normalizeFxRateSnapshot(normalized.fxRateSnapshot, normalized.currency),
     calendar_color: normalizeCalendarColor(normalized.calendarColor),
     priority: normalized.priority,
+    priority_rate: normalizePriorityRate(normalized.priorityRate, normalized.priority),
     amount: normalizeMoneyValue(normalized.amount),
     mhs_project_quoted_amount: normalizeMoneyValue(normalized.mhsProjectQuotedAmount),
     received_amount: normalizeMoneyValue(normalized.receivedAmount),
@@ -8216,6 +8225,13 @@ function formatUsageRatePercent(rate) {
   return percent.toFixed(2).replace(/\.?0+$/, "");
 }
 
+function normalizePriorityRate(value, priority = PRIORITIES[0]) {
+  if (priority === "普通") return 0;
+  const parsed = Number(value || 0);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.min(parsed, 5);
+}
+
 function sanitizeWorkHours(value) {
   const parsed = Number(value || 0);
   if (!isFinite(parsed) || parsed <= 0) return 0;
@@ -8252,8 +8268,18 @@ function calculateUsageSurcharge(order) {
   return roundMoney(normalizeMoneyValue(order.amount) * usageRate, 2);
 }
 
+function calculatePrioritySurcharge(order) {
+  const priority = order.priority || PRIORITIES[0];
+  const priorityRate = normalizePriorityRate(order.priorityRate, priority);
+  if (priority === "普通" || priorityRate <= 0) return 0;
+  return roundMoney(normalizeMoneyValue(order.amount) * priorityRate, 2);
+}
+
 function calculateGrossAmount(order) {
-  return roundMoney(normalizeMoneyValue(order.amount) + calculateUsageSurcharge(order), 2);
+  return roundMoney(
+    normalizeMoneyValue(order.amount) + calculateUsageSurcharge(order) + calculatePrioritySurcharge(order),
+    2,
+  );
 }
 
 function calculateEffectiveAmount(order) {

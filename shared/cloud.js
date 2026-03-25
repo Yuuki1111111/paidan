@@ -18,7 +18,7 @@ export const CLOUD_TABLES = {
 };
 
 const BUSINESS_TEMPLATE_SELECT =
-  "project_name,business_type,production_stage,source,fee_mode,fee_rate,usage_type,usage_rate,currency,fx_rate_snapshot,priority,amount,received_amount,payment_status,work_hours,status,exception_type,notes,calendar_color,mhs_project_quoted_amount,updated_at";
+  "project_name,business_type,production_stage,source,fee_mode,fee_rate,usage_type,usage_rate,currency,fx_rate_snapshot,priority,priority_rate,amount,received_amount,payment_status,work_hours,status,exception_type,notes,calendar_color,mhs_project_quoted_amount,updated_at";
 
 export function hasCloudConfig(runtime) {
   return Boolean(runtime?.supabaseUrl && runtime?.supabaseAnonKey);
@@ -82,6 +82,7 @@ export function rowToOrder(row, { fxSettings } = {}) {
       fxRateSnapshot: row.fx_rate_snapshot,
       calendarColor: row.calendar_color,
       priority: row.priority,
+      priorityRate: row.priority_rate,
       amount: row.amount,
       mhsProjectQuotedAmount: row.mhs_project_quoted_amount,
       receivedAmount: row.received_amount,
@@ -120,6 +121,7 @@ export function orderToRow(order, userId) {
     fx_rate_snapshot: normalizeFxRateSnapshot(order.fxRateSnapshot, normalizeCurrency(order.currency)),
     calendar_color: normalizeCalendarColor(order.calendarColor),
     priority: order.priority,
+    priority_rate: Number(order.priorityRate || 0),
     amount: normalizeMoneyValue(order.amount),
     mhs_project_quoted_amount: normalizeMoneyValue(order.mhsProjectQuotedAmount),
     received_amount: normalizeMoneyValue(order.receivedAmount),
@@ -153,6 +155,7 @@ export function businessTemplateRowToRecord(row, normalizeTemplate = (value) => 
     currency: row.currency,
     fxRateSnapshot: row.fx_rate_snapshot,
     priority: row.priority,
+    priorityRate: row.priority_rate,
     amount: row.amount,
     mhsProjectQuotedAmount: row.mhs_project_quoted_amount,
     receivedAmount: row.received_amount,
@@ -181,6 +184,7 @@ export function businessTemplateToRow(template, userId) {
     fx_rate_snapshot: normalizeFxRateSnapshot(template.fxRateSnapshot, normalizeCurrency(template.currency)),
     calendar_color: normalizeCalendarColor(template.calendarColor),
     priority: template.priority,
+    priority_rate: Number(template.priorityRate || 0),
     amount: normalizeMoneyValue(template.amount),
     mhs_project_quoted_amount: normalizeMoneyValue(template.mhsProjectQuotedAmount),
     received_amount: normalizeMoneyValue(template.receivedAmount),
