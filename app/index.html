@@ -316,6 +316,27 @@
                   点下方业务只切换分类；整套模板配置请用“从模板套用”。
                 </span>
               </label>
+              <section class="template-quick-entry full-width" aria-label="业务模板快捷操作">
+                <div class="template-quick-entry-copy">
+                  <p class="section-tag">模板</p>
+                  <strong>先套模板，再补客户和日期</strong>
+                  <p
+                    id="business-template-status-text"
+                    class="legend-row business-template-status-copy"
+                  ></p>
+                  <p id="business-template-note" class="legend-row field-note business-template-note">
+                    模板会保存金额、手续费、用途、阶段、排期颜色、备注等配置；客户名、项目名、日期和已收金额不会保存。同业务再次保存会覆盖旧模板；套用请走“从模板套用”。
+                  </p>
+                </div>
+                <div class="form-actions template-quick-entry-actions">
+                  <button type="button" id="open-template-picker" class="ghost-button">
+                    从模板套用
+                  </button>
+                  <button type="button" id="save-business-template" class="ghost-button">
+                    保存业务模板
+                  </button>
+                </div>
+              </section>
               <label>
                 来源
                 <input
@@ -482,15 +503,9 @@
               </label>
               <div class="form-actions full-width">
                 <button type="submit" class="primary-button">保存稿件</button>
-                <button type="button" id="save-business-template" class="ghost-button">保存业务模板</button>
-                <button type="button" id="open-template-picker" class="ghost-button">从模板套用</button>
                 <button type="button" id="duplicate-last" class="ghost-button">重复上一单</button>
                 <button type="button" id="reset-form" class="ghost-button">清空表单</button>
               </div>
-              <p id="business-template-status-text" class="legend-row business-template-status-copy full-width"></p>
-              <p id="business-template-note" class="legend-row field-note business-template-note full-width">
-                模板会保存金额、手续费、用途、阶段、排期颜色、备注等配置；客户名、项目名、日期和已收金额不会保存。同业务再次保存会覆盖旧模板；套用请走“从模板套用”。
-              </p>
             </form>
           </section>
 
