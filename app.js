@@ -5571,7 +5571,7 @@ function renderTable(
         <strong>${escapeHtml(order.projectName)}</strong>
         ${
           order.notes
-            ? `<div class="legend-row order-note-summary" title="${escapeHtml(order.notes)}">${escapeHtml(summarizeOrderNotes(order.notes))}</div>`
+            ? `<div class="legend-row order-note-summary" title="${escapeAttribute(order.notes)}">${escapeHtml(summarizeOrderNotes(order.notes))}</div>`
             : ""
         }
       </td>

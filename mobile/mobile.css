@@ -532,9 +532,10 @@ textarea {
 .mobile-order-note.is-summary {
   margin-top: 8px;
   line-height: 1.45;
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 /* ── Order card action bar (icon + label, show on expand) ── */
