@@ -18,7 +18,7 @@ export const CLOUD_TABLES = {
 };
 
 const BUSINESS_TEMPLATE_SELECT =
-  "project_name,business_type,production_stage,source,fee_mode,fee_rate,usage_type,usage_rate,currency,fx_rate_snapshot,priority,amount,received_amount,payment_status,work_hours,status,exception_type,notes,mhs_project_quoted_amount,updated_at";
+  "project_name,business_type,production_stage,source,fee_mode,fee_rate,usage_type,usage_rate,currency,fx_rate_snapshot,priority,amount,received_amount,payment_status,work_hours,status,exception_type,notes,calendar_color,mhs_project_quoted_amount,updated_at";
 
 export function hasCloudConfig(runtime) {
   return Boolean(runtime?.supabaseUrl && runtime?.supabaseAnonKey);
@@ -161,6 +161,7 @@ export function businessTemplateRowToRecord(row, normalizeTemplate = (value) => 
     status: row.status,
     exceptionType: row.exception_type,
     notes: row.notes,
+    calendarColor: row.calendar_color,
     updatedAt: row.updated_at,
   });
 }
@@ -178,6 +179,7 @@ export function businessTemplateToRow(template, userId) {
     usage_rate: normalizeUsageRate(template.usageRate, template.usageType),
     currency: normalizeCurrency(template.currency),
     fx_rate_snapshot: normalizeFxRateSnapshot(template.fxRateSnapshot, normalizeCurrency(template.currency)),
+    calendar_color: normalizeCalendarColor(template.calendarColor),
     priority: template.priority,
     amount: normalizeMoneyValue(template.amount),
     mhs_project_quoted_amount: normalizeMoneyValue(template.mhsProjectQuotedAmount),

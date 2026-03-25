@@ -3471,10 +3471,11 @@ function renderTemplateApplyPane(templates, repeatSource) {
         <span>已保存模板</span>
         <span>${templates.length} 个</span>
       </div>
+      <p class="mobile-sheet-note">套用模板会带入金额、手续费、阶段、排期颜色和备注；项目名、客户名、日期与已收金额仍需补充。</p>
       ${
         templates.length
           ? `<div class="mobile-sheet-list">${templates.map(renderTemplateCard).join("")}</div>`
-          : `<div class="mobile-sheet-empty">还没有模板。你可以切到“保存模板”把当前表单保存为常用模板。</div>`
+          : `<div class="mobile-sheet-empty">还没有模板。你可以切到“保存业务模板”先存一套常用配置。</div>`
       }
     </div>
   `;
@@ -3484,12 +3485,13 @@ function renderTemplateCard(template) {
   const key = escapeAttribute(template.businessType);
   const isExpanded = state.expandedTemplateKey === template.businessType;
   const isConfirmingDelete = state.confirmDeleteTemplateKey === template.businessType;
+  const previewColor = normalizeCalendarColor(template.calendarColor) || getSourceColor(template.source);
   return `
     <article class="mobile-sheet-list-card">
       <button class="mobile-sheet-row mobile-sheet-row-button" type="button" data-template-expand="${key}">
         <div class="mobile-sheet-row-main">
           <strong>${escapeHtml(getTemplateDisplayName(template))}</strong>
-          <span>${escapeHtml(template.businessType)} · ${escapeHtml(getSourceLabel(template.source))} · ${formatMoneyValue(template.amount)}</span>
+          <span>${escapeHtml(getSourceLabel(template.source))} · ${formatMoneyValue(template.amount)} · <span class="mobile-inline-color-dot" style="background:${escapeHtml(previewColor)};"></span>${normalizeCalendarColor(template.calendarColor) ? "自定义颜色" : "来源默认色"}</span>
         </div>
         <span class="mobile-sheet-expand">${isExpanded ? "▾" : "▸"}</span>
       </button>
@@ -3506,7 +3508,7 @@ function renderTemplateCard(template) {
                 <div><span>币种</span><strong>${escapeHtml(template.currency)}</strong></div>
               </div>
               <div class="mobile-sheet-note">
-                模板会保存金额、手续费、用途、阶段、备注等配置；客户名和日期不会保存。
+                模板会保存金额、手续费、用途、阶段、排期颜色和备注；项目名、客户名、日期与已收金额不会保存。
               </div>
               <div class="mobile-sheet-inline-actions">
                 ${
@@ -3530,19 +3532,17 @@ function renderTemplateCard(template) {
 }
 
 function renderTemplateSavePane() {
-  const templateName = state.templateDraftName || buildDefaultTemplateName();
   const draft = state.createDraft;
+  const businessType = normalizeBusinessTypeValue(draft.businessType);
+  const existing = getBusinessTemplate(businessType);
   return `
     <div class="mobile-sheet-section">
       <div class="mobile-sheet-section-head">
-        <span>保存当前为模板</span>
-        <span>按业务类型覆盖</span>
+        <span>${existing ? "更新当前业务模板" : "保存当前业务模板"}</span>
+        <span>${businessType ? "按业务类型覆盖" : "先选业务"}</span>
       </div>
       <div class="mobile-sheet-list-card">
-        <label class="mobile-sheet-input-block">
-          <span>模板显示名</span>
-          <input class="mobile-sheet-input" type="text" value="${escapeAttribute(templateName)}" data-template-name placeholder="例如：米画师立绘标准单" />
-        </label>
+        <p class="mobile-sheet-note">${businessType ? `当前业务：${escapeHtml(businessType)} · ${existing ? "已有模板" : "尚未设置模板"}` : "先在录入页选一个业务分类，再保存模板。"}</p>
         <div class="mobile-sheet-meta-grid">
           <div><span>业务分类</span><strong>${escapeHtml(draft.businessType)}</strong></div>
           <div><span>来源</span><strong>${escapeHtml(getSourceLabel(draft.source))}</strong></div>
@@ -3550,10 +3550,10 @@ function renderTemplateSavePane() {
           <div><span>手续费</span><strong>${escapeHtml(getFeeModeLabel(draft.feeMode))}</strong></div>
         </div>
         <div class="mobile-sheet-note">
-          模板会保存金额、手续费、用途、阶段、备注等配置；客户名和日期不会保存。
+          模板会保存金额、手续费、用途、阶段、排期颜色和备注等配置；项目名、客户名、日期与已收金额不会保存。同业务再次保存会覆盖旧模板。
         </div>
         <div class="mobile-sheet-inline-actions">
-          <button type="button" class="mobile-sheet-primary" data-action="save-current-template">另存为业务模板</button>
+          <button type="button" class="mobile-sheet-primary" data-action="save-current-template"${businessType ? "" : " disabled"}>${existing ? "更新业务模板" : "保存业务模板"}</button>
         </div>
       </div>
     </div>
@@ -7406,7 +7406,7 @@ function getLatestTemplate() {
 function buildBusinessTemplateFromDraft(draft, displayName = "") {
   return normalizeBusinessTemplate(
     {
-      projectName: displayName || draft.projectName || `${draft.businessType}标准单`,
+      projectName: "",
       businessType: draft.businessType,
       productionStage: draft.productionStage,
       source: draft.source,
@@ -7419,8 +7419,8 @@ function buildBusinessTemplateFromDraft(draft, displayName = "") {
       currency: draft.currency,
       priority: draft.priority,
       amount: draft.amount,
-      receivedAmount: draft.receivedAmount,
-      paymentStatus: draft.paymentStatus,
+      receivedAmount: 0,
+      paymentStatus: PAYMENT_STATUSES[0],
       workHours: draft.workHours,
       status: draft.status,
       exceptionType: draft.exceptionType,
@@ -7438,7 +7438,7 @@ function buildDefaultTemplateName() {
 }
 
 function getTemplateDisplayName(template) {
-  return template.projectName || `${template.businessType}模板`;
+  return template.businessType || template.projectName || "业务模板";
 }
 
 function getRepeatSource() {
@@ -7540,9 +7540,11 @@ function applyBusinessTemplateToDraft(template) {
   if (!normalized) return;
   state.editingOrderId = "";
   state.createDraft = buildDraftFromSeed(normalized);
-  state.createContextNote = "";
+  state.createContextNote = `已套用「${normalized.businessType}」模板，请补充项目名、客户名和日期。`;
+  state.tab = "create";
   closeActiveSheet();
   render();
+  window.scrollTo(0, 0);
 }
 
 function duplicatePreviousOrder() {
@@ -7648,8 +7650,10 @@ function isValidImportedOrder(record) {
 }
 
 async function saveCurrentTemplate() {
-  const template = buildBusinessTemplateFromDraft(state.createDraft, state.templateDraftName.trim());
+  const template = buildBusinessTemplateFromDraft(state.createDraft);
   if (!template) return;
+  const hadTemplate = Boolean(getBusinessTemplate(template.businessType));
+  let syncError = null;
   persistLocalBusinessTemplates(
     {
       ...state.businessTemplates,
@@ -7677,7 +7681,11 @@ async function saveCurrentTemplate() {
       });
     }
   } catch (error) {
+    syncError = error;
     setSettingsFeedback(`模板已保存在本地，但云端同步失败：${mapAuthError(error)}`, "error");
+  }
+  if (!syncError) {
+    setSettingsFeedback(`已${hadTemplate ? "更新" : "保存"}「${template.businessType}」模板，可在“套用模板”里一键带入。`);
   }
   state.templateSheetMode = "apply";
   state.templateDraftName = "";

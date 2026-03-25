@@ -313,7 +313,7 @@
                   管理业务
                 </button>
                 <span class="legend-row field-note">
-                  支持内置业务和自定义常用业务一键点选，减少重复输入。
+                  点下方业务只切换分类；整套模板配置请用“从模板套用”。
                 </span>
               </label>
               <label>
@@ -482,12 +482,14 @@
               </label>
               <div class="form-actions full-width">
                 <button type="submit" class="primary-button">保存稿件</button>
-                <button type="button" id="save-business-template" class="ghost-button">另存为业务模板</button>
+                <button type="button" id="save-business-template" class="ghost-button">保存业务模板</button>
+                <button type="button" id="open-template-picker" class="ghost-button">从模板套用</button>
                 <button type="button" id="duplicate-last" class="ghost-button">重复上一单</button>
                 <button type="button" id="reset-form" class="ghost-button">清空表单</button>
               </div>
-              <p class="legend-row field-note business-template-note full-width">
-                模板会保存金额、手续费、用途、阶段、备注等配置；客户名和日期不会保存。异常模板只保存“异常类型”。
+              <p id="business-template-status-text" class="legend-row business-template-status-copy full-width"></p>
+              <p id="business-template-note" class="legend-row field-note business-template-note full-width">
+                模板会保存金额、手续费、用途、阶段、排期颜色、备注等配置；客户名、项目名、日期和已收金额不会保存。同业务再次保存会覆盖旧模板；套用请走“从模板套用”。
               </p>
             </form>
           </section>
@@ -947,7 +949,7 @@
               <section class="stage-fields business-preset-panel business-preset-create-panel">
                 <div class="business-preset-panel-head">
                   <p class="legend-row">新增自定义业务</p>
-                  <p class="legend-row">模板会覆盖除老板名和动工/截稿/完成日期外的字段；异常只保留异常类型。</p>
+                  <p class="legend-row">这里只管理业务分类；模板的保存和套用请回录入区操作。</p>
                 </div>
                 <div class="business-preset-create-body">
                   <label class="business-preset-input-wrap">
@@ -968,7 +970,7 @@
               <section class="stage-summary-card business-preset-panel business-preset-section">
                 <div class="business-preset-panel-head">
                   <p class="legend-row">内置业务库</p>
-                  <p class="legend-row">内置业务不能删除；可单独删除模板。</p>
+                  <p class="legend-row">内置业务不能删除；可查看模板状态，也可单独删除模板。</p>
                 </div>
                 <div id="business-preset-built-in-list" class="business-preset-list"></div>
               </section>
@@ -976,7 +978,7 @@
               <section class="stage-summary-card business-preset-panel business-preset-section">
                 <div class="business-preset-panel-head">
                   <p class="legend-row">自定义业务</p>
-                  <p class="legend-row">可删除业务，也可仅删除模板。</p>
+                  <p class="legend-row">可删除业务，也可单独删除该业务模板。</p>
                 </div>
                 <div id="business-preset-custom-list" class="business-preset-list"></div>
               </section>
@@ -986,6 +988,33 @@
             <div class="stage-dialog-actions">
               <div class="hero-actions">
                 <button type="button" id="business-preset-dialog-done" class="ghost-button">
+                  完成
+                </button>
+              </div>
+            </div>
+          </form>
+        </dialog>
+
+        <dialog id="template-picker-dialog" class="stage-dialog business-template-picker-dialog">
+          <form method="dialog" class="stage-dialog-form business-template-picker-form">
+            <div class="stage-dialog-header">
+              <div>
+                <p class="section-tag">模板</p>
+                <h2>从模板套用</h2>
+              </div>
+              <button type="button" id="template-picker-dialog-close" class="ghost-button small-button">
+                关闭
+              </button>
+            </div>
+            <div class="business-template-picker-shell">
+              <p class="legend-row">
+                模板会带入金额、手续费、用途、阶段、排期颜色和备注；项目名、客户名、日期与已收金额仍需你补充。
+              </p>
+              <div id="template-picker-list" class="business-template-picker-list"></div>
+            </div>
+            <div class="stage-dialog-actions">
+              <div class="hero-actions">
+                <button type="button" id="template-picker-dialog-done" class="ghost-button">
                   完成
                 </button>
               </div>

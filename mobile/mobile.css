@@ -147,6 +147,16 @@ textarea {
   background: var(--mobile-border-light);
 }
 
+.mobile-inline-color-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  display: inline-block;
+  vertical-align: middle;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  margin: 0 2px 0 4px;
+}
+
 .mobile-content {
   display: flex;
   flex-direction: column;

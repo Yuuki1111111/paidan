@@ -222,6 +222,9 @@ alter table public.business_templates
 add column if not exists notes text not null default '';
 
 alter table public.business_templates
+add column if not exists calendar_color text not null default '';
+
+alter table public.business_templates
 add column if not exists updated_at timestamptz not null default now();
 
 create unique index if not exists business_templates_user_id_business_type_key

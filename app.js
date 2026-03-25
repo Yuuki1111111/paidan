@@ -394,8 +394,11 @@ const elements = {
   prevMonth: document.querySelector("#prev-month"),
   nextMonth: document.querySelector("#next-month"),
   saveBusinessTemplate: document.querySelector("#save-business-template"),
+  openTemplatePicker: document.querySelector("#open-template-picker"),
   duplicateLast: document.querySelector("#duplicate-last"),
   resetForm: document.querySelector("#reset-form"),
+  businessTemplateStatusText: document.querySelector("#business-template-status-text"),
+  businessTemplateNote: document.querySelector("#business-template-note"),
   statTemplate: document.querySelector("#stat-card-template"),
   batchActions: document.querySelector("#batch-actions"),
   batchSummary: document.querySelector("#batch-summary"),
@@ -429,6 +432,10 @@ const elements = {
   businessPresetBuiltInList: document.querySelector("#business-preset-built-in-list"),
   businessPresetCustomList: document.querySelector("#business-preset-custom-list"),
   businessPresetDialogMessage: document.querySelector("#business-preset-dialog-message"),
+  templatePickerDialog: document.querySelector("#template-picker-dialog"),
+  templatePickerDialogClose: document.querySelector("#template-picker-dialog-close"),
+  templatePickerDialogDone: document.querySelector("#template-picker-dialog-done"),
+  templatePickerList: document.querySelector("#template-picker-list"),
   stageDialog: document.querySelector("#stage-dialog"),
   stageDialogClose: document.querySelector("#stage-dialog-close"),
   stageDialogTitle: document.querySelector("#stage-dialog-title"),
@@ -752,6 +759,7 @@ function bindEvents() {
   elements.saveBusinessTemplate.addEventListener("click", () => {
     void saveBusinessTemplateFromForm();
   });
+  elements.openTemplatePicker?.addEventListener("click", openTemplatePickerDialog);
   elements.duplicateLast.addEventListener("click", duplicatePreviousOrder);
   elements.resetForm.addEventListener("click", () => {
     resetForm();
@@ -763,15 +771,9 @@ function bindEvents() {
     if (!button) return;
     const value = normalizeBusinessTypeValue(button.dataset.businessShortcut);
     if (!value) return;
-    const template = getBusinessTemplate(value);
-    if (template) {
-      applyBusinessTemplateToForm(template);
-      updateAuthUi(`已套用「${value}」模板：覆盖项目与业务字段，保留老板名和动工/截稿/完成日期。`);
-    } else {
-      elements.businessType.value = value;
-      renderBusinessShortcutList();
-      refreshPendingTimelineDraftFromForm();
-    }
+    elements.businessType.value = value;
+    renderBusinessShortcutList();
+    refreshPendingTimelineDraftFromForm();
     elements.businessType.focus();
   });
   elements.businessPresetDialogClose.addEventListener("click", closeBusinessPresetDialog);
@@ -826,12 +828,33 @@ function bindEvents() {
       elements.businessPresetInput.value = "";
     }
   });
+  elements.templatePickerDialogClose?.addEventListener("click", closeTemplatePickerDialog);
+  elements.templatePickerDialogDone?.addEventListener("click", closeTemplatePickerDialog);
+  elements.templatePickerList?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-apply-business-template]");
+    if (!button) return;
+    const businessType = normalizeBusinessTypeValue(button.dataset.applyBusinessTemplate);
+    if (!businessType) return;
+    const template = getBusinessTemplate(businessType);
+    if (!template) return;
+    if (applyBusinessTemplateToForm(template)) {
+      closeTemplatePickerDialog();
+      updateAuthUi(`已套用「${businessType}」模板，请补充项目名、客户名，并确认日期。`);
+      elements.clientName?.focus();
+    }
+  });
+  elements.templatePickerDialog?.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeTemplatePickerDialog();
+  });
   elements.businessType.addEventListener("blur", () => {
     elements.businessType.value = normalizeBusinessTypeValue(elements.businessType.value);
     renderBusinessShortcutList();
+    renderBusinessTemplateUi();
   });
   elements.businessType.addEventListener("input", () => {
     renderBusinessShortcutList();
+    renderBusinessTemplateUi();
   });
   elements.mhsProjectAmountModeArtist?.addEventListener("click", () => {
     setMhsProjectAmountMode(MHS_PROJECT_AMOUNT_MODE_ARTIST);
@@ -2084,7 +2107,7 @@ async function loadRemoteBusinessTemplates() {
   const { data, error } = await state.supabase
     .from(BUSINESS_TEMPLATE_TABLE)
     .select(
-      "project_name,business_type,production_stage,source,fee_mode,fee_rate,usage_type,usage_rate,currency,fx_rate_snapshot,priority,amount,mhs_project_quoted_amount,received_amount,payment_status,work_hours,status,exception_type,notes,updated_at",
+      "project_name,business_type,production_stage,source,fee_mode,fee_rate,usage_type,usage_rate,currency,fx_rate_snapshot,priority,amount,mhs_project_quoted_amount,received_amount,payment_status,work_hours,status,exception_type,notes,calendar_color,updated_at",
     )
     .eq("user_id", state.user.id);
   if (error) throw error;
@@ -2110,7 +2133,7 @@ async function upsertRemoteBusinessTemplates(templates) {
     .from(BUSINESS_TEMPLATE_TABLE)
     .upsert(payload, { onConflict: "user_id,business_type" })
     .select(
-      "project_name,business_type,production_stage,source,fee_mode,fee_rate,usage_type,usage_rate,currency,fx_rate_snapshot,priority,amount,mhs_project_quoted_amount,received_amount,payment_status,work_hours,status,exception_type,notes,updated_at",
+      "project_name,business_type,production_stage,source,fee_mode,fee_rate,usage_type,usage_rate,currency,fx_rate_snapshot,priority,amount,mhs_project_quoted_amount,received_amount,payment_status,work_hours,status,exception_type,notes,calendar_color,updated_at",
     );
   if (error) throw error;
 
@@ -3430,7 +3453,7 @@ function renderSyncPanel() {
     field.disabled = !canEditOrders || state.busy;
   });
   elements.openBusinessPresetDialog.disabled = !canEditOrders || state.busy || state.businessPresetBusy;
-  elements.saveBusinessTemplate.disabled = !canEditOrders || state.busy || state.businessPresetBusy;
+  renderBusinessTemplateUi({ canEditOrders });
   elements.businessShortcutList.querySelectorAll("button").forEach((button) => {
     button.disabled = !canEditOrders || state.busy || state.businessPresetBusy;
   });
@@ -3497,6 +3520,9 @@ function renderSyncPanel() {
   }
   if (elements.businessPresetDialog?.open) {
     renderBusinessPresetDialog();
+  }
+  if (elements.templatePickerDialog?.open) {
+    renderTemplatePickerDialog();
   }
   syncUsageRateUi();
 }
@@ -6729,6 +6755,34 @@ function renderBusinessShortcutList() {
       )}" ${disabled ? "disabled" : ""}>${escapeHtml(value)}</button>`;
     })
     .join("");
+  renderBusinessTemplateUi({ canEditOrders });
+}
+
+function renderBusinessTemplateUi({ canEditOrders = state.mode === "local" || Boolean(state.user) } = {}) {
+  const businessType = normalizeBusinessTypeValue(elements.businessType?.value);
+  const template = getBusinessTemplate(businessType);
+  const templateCount = getBusinessTemplateList().length;
+  const controlsDisabled = !canEditOrders || state.busy || state.businessPresetBusy;
+
+  if (elements.saveBusinessTemplate) {
+    elements.saveBusinessTemplate.textContent = template ? "更新业务模板" : "保存业务模板";
+    elements.saveBusinessTemplate.disabled = controlsDisabled || !businessType;
+  }
+
+  if (elements.openTemplatePicker) {
+    elements.openTemplatePicker.disabled = controlsDisabled || templateCount === 0;
+  }
+
+  if (elements.businessTemplateStatusText) {
+    elements.businessTemplateStatusText.textContent = businessType
+      ? `当前业务：${businessType} · ${template ? "已有模板" : "尚未设置模板"}`
+      : "先选择业务分类，再保存或更新模板。";
+  }
+
+  if (elements.businessTemplateNote) {
+    elements.businessTemplateNote.textContent =
+      "模板会保存金额、手续费、用途、阶段、排期颜色、备注等配置；客户名、项目名、日期和已收金额不会保存。同业务再次保存会覆盖旧模板；套用请走“从模板套用”。";
+  }
 }
 
 function renderBusinessPresetItem(value, { removableBusiness = false, controlsDisabled = false } = {}) {
@@ -6837,6 +6891,43 @@ function formatTemplateTimestamp(value) {
   return `${month}/${day} ${hours}:${minutes}`;
 }
 
+function renderTemplatePickerDialog() {
+  if (!elements.templatePickerList) return;
+  const templates = getBusinessTemplateList();
+  const controlsDisabled = state.busy || state.businessPresetBusy;
+  elements.templatePickerList.innerHTML = templates.length
+    ? templates.map((template) => renderTemplatePickerItem(template, controlsDisabled)).join("")
+    : '<div class="business-preset-empty"><p class="legend-row">还没有已保存模板。先在当前业务上点“保存业务模板”。</p></div>';
+}
+
+function renderTemplatePickerItem(template, controlsDisabled = false) {
+  const normalized = normalizeBusinessTemplate(template);
+  if (!normalized) return "";
+  const previewColor = getTemplatePreviewColor(normalized);
+  const amountLabel =
+    normalizeMoneyValue(normalized.amount) > 0
+      ? formatOriginalMoney(normalized.amount, normalized.currency)
+      : "未设置金额";
+  return `
+    <article class="business-template-picker-item">
+      <div class="business-template-picker-main">
+        <div class="business-template-picker-head">
+          <strong>${escapeHtml(normalized.businessType)}</strong>
+          <span class="business-template-picker-time">更新 ${escapeHtml(formatTemplateTimestamp(normalized.updatedAt))}</span>
+        </div>
+        <div class="business-template-picker-meta">
+          <span>${escapeHtml(getSourceLabel(normalized.source))}</span>
+          <span>${escapeHtml(amountLabel)}</span>
+          <span class="business-template-picker-color"><i style="background:${escapeHtml(previewColor)};"></i>${normalizeCalendarColor(normalized.calendarColor) ? "自定义颜色" : "来源默认色"}</span>
+        </div>
+      </div>
+      <button type="button" class="primary-button small-button" data-apply-business-template="${escapeHtml(
+        normalized.businessType,
+      )}" ${controlsDisabled ? "disabled" : ""}>套用</button>
+    </article>
+  `;
+}
+
 function renderProductionStageOptions() {
   if (elements.productionStageOptions) {
     elements.productionStageOptions.innerHTML = "";
@@ -6922,6 +7013,7 @@ function normalizeBusinessTemplate(input = {}) {
     mhsProjectQuotedAmount: input.mhsProjectQuotedAmount,
     currency: input.currency,
     fxRateSnapshot: input.fxRateSnapshot,
+    calendarColor: input.calendarColor,
     priority: input.priority,
     amount: input.amount,
     receivedAmount: input.receivedAmount,
@@ -6952,6 +7044,7 @@ function normalizeBusinessTemplate(input = {}) {
     receivedAmount: normalizedOrder.receivedAmount,
     paymentStatus: normalizePaymentStatus(normalizedOrder),
     workHours: normalizedOrder.workHours,
+    calendarColor: normalizeCalendarColor(normalizedOrder.calendarColor),
     status: normalizedOrder.status,
     exceptionType: normalizedOrder.exceptionType,
     notes: normalizedOrder.notes,
@@ -6979,12 +7072,22 @@ function hasBusinessTemplate(value) {
   return Boolean(getBusinessTemplate(value));
 }
 
+function getBusinessTemplateList() {
+  return Object.values(state.businessTemplates || {}).sort((left, right) => {
+    return getSettingsTimestamp(right.updatedAt) - getSettingsTimestamp(left.updatedAt);
+  });
+}
+
+function getTemplatePreviewColor(template) {
+  return normalizeCalendarColor(template?.calendarColor) || getSourceColor(template?.source);
+}
+
 function buildBusinessTemplateFromForm() {
   const businessType = normalizeBusinessTypeValue(elements.businessType?.value);
   if (!businessType) return null;
 
   return normalizeBusinessTemplate({
-    projectName: elements.projectName?.value.trim(),
+    projectName: "",
     businessType,
     productionStage: elements.productionStage?.value,
     source: elements.source?.value,
@@ -6998,10 +7101,11 @@ function buildBusinessTemplateFromForm() {
       normalizeCurrency(elements.currency?.value) === "CNY"
         ? null
         : getConfiguredFxRate(elements.currency?.value),
+    calendarColor: getCalendarColorInputValue(),
     priority: elements.priority?.value,
     amount: parseBaseAmountFromDisplayedInput(elements.amount?.value),
-    receivedAmount: Number(elements.receivedAmount?.value),
-    paymentStatus: elements.paymentStatus?.value,
+    receivedAmount: 0,
+    paymentStatus: PAYMENT_STATUSES[0],
     workHours: elements.workHours?.value,
     status: elements.status?.value,
     exceptionType: elements.exceptionType?.value,
@@ -7014,7 +7118,8 @@ function applyBusinessTemplateToForm(template) {
   const normalized = normalizeBusinessTemplate(template);
   if (!normalized) return false;
 
-  elements.projectName.value = normalized.projectName || "";
+  elements.projectName.value = "";
+  elements.clientName.value = "";
   elements.businessType.value = normalized.businessType;
   elements.productionStage.value = normalized.productionStage || "";
   elements.source.value = normalized.source;
@@ -7033,13 +7138,19 @@ function applyBusinessTemplateToForm(template) {
     amountMode: state.mhsProjectAmountMode,
     storedQuotedAmount: normalized.mhsProjectQuotedAmount,
   });
-  elements.receivedAmount.value = formatMoney(normalized.receivedAmount);
-  elements.paymentStatus.value = normalized.paymentStatus;
+  elements.receivedAmount.value = "";
+  elements.paymentStatus.value = PAYMENT_STATUSES[0];
   elements.workHours.value = normalized.workHours > 0 ? formatHours(normalized.workHours) : "";
   elements.status.value = normalized.status;
   elements.exceptionType.value = normalized.exceptionType || EXCEPTION_TYPES[0];
   elements.notes.value = normalized.notes;
-  syncCalendarColorInputWithSource();
+  if (normalizeCalendarColor(normalized.calendarColor)) {
+    setCalendarColorInputMode(true);
+    elements.calendarColor.value = normalizeCalendarColor(normalized.calendarColor);
+  } else {
+    setCalendarColorInputMode(false);
+    syncCalendarColorInputWithSource();
+  }
   updateFeeModeUi();
   syncCurrencyUi();
   syncUsageRateUi();
@@ -7883,6 +7994,7 @@ function businessTemplateRowToRecord(row) {
     status: row.status,
     exceptionType: row.exception_type,
     notes: row.notes,
+    calendarColor: row.calendar_color,
     updatedAt: row.updated_at,
   });
 }
@@ -7901,6 +8013,7 @@ function businessTemplateToRow(template, userId) {
     usage_rate: normalized.usageRate,
     currency: normalized.currency,
     fx_rate_snapshot: normalizeFxRateSnapshot(normalized.fxRateSnapshot, normalized.currency),
+    calendar_color: normalizeCalendarColor(normalized.calendarColor),
     priority: normalized.priority,
     amount: normalizeMoneyValue(normalized.amount),
     mhs_project_quoted_amount: normalizeMoneyValue(normalized.mhsProjectQuotedAmount),
@@ -8589,6 +8702,24 @@ function closeBusinessPresetDialog() {
   }
 }
 
+function openTemplatePickerDialog() {
+  if (!elements.templatePickerDialog) return;
+  const canEditOrders = state.mode === "local" || Boolean(state.user);
+  if (!canEditOrders || state.busy || state.businessPresetBusy) return;
+  if (!getBusinessTemplateList().length) {
+    updateAuthUi("还没有已保存模板。先选业务后点“保存业务模板”。");
+    return;
+  }
+  renderTemplatePickerDialog();
+  elements.templatePickerDialog.showModal();
+}
+
+function closeTemplatePickerDialog() {
+  if (elements.templatePickerDialog?.open) {
+    elements.templatePickerDialog.close();
+  }
+}
+
 async function addBusinessPresetFromDialog() {
   if (state.busy || state.businessPresetBusy) return;
   const inputValue = elements.businessPresetInput.value;
@@ -8627,6 +8758,7 @@ async function saveBusinessTemplateFromForm() {
     updateAuthUi("先填写业务分类，再保存业务模板。");
     return;
   }
+  const hadTemplate = Boolean(getBusinessTemplate(template.businessType));
 
   state.businessPresetBusy = true;
   renderSyncPanel();
@@ -8661,8 +8793,8 @@ async function saveBusinessTemplateFromForm() {
     ].filter(Boolean);
     updateAuthUi(
       syncErrors.length
-        ? `已保存「${template.businessType}」模板，但云端同步失败：${syncErrors.join("；")}`
-        : `已保存「${template.businessType}」模板。`,
+        ? `已${hadTemplate ? "更新" : "保存"}「${template.businessType}」模板，但云端同步失败：${syncErrors.join("；")}`
+        : `已${hadTemplate ? "更新" : "保存"}「${template.businessType}」模板。下次请从“从模板套用”里一键带入。`,
     );
   } finally {
     state.businessPresetBusy = false;
