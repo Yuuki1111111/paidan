@@ -125,6 +125,8 @@ public class StoreKitPlugin: CAPPlugin, CAPBridgedPlugin {
         var result: [[String: Any]] = []
         for await verification in Transaction.currentEntitlements {
             if case .verified(let tx) = verification {
+                if tx.revocationDate != nil { continue }
+                if tx.isUpgraded { continue }
                 var entry: [String: Any] = [
                     "productId": tx.productID,
                     "productType": productTypeString(tx.productType),
@@ -132,9 +134,6 @@ public class StoreKitPlugin: CAPPlugin, CAPBridgedPlugin {
                 ]
                 if let exp = tx.expirationDate {
                     entry["expirationDate"] = iso8601(exp)
-                }
-                if tx.revocationDate != nil {
-                    continue // skip revoked
                 }
                 result.append(entry)
             }
