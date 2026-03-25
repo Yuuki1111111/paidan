@@ -9,6 +9,7 @@ create table if not exists public.commission_orders (
   production_stage text not null default '',
   source text not null,
   priority text not null,
+  priority_rate numeric not null default 0,
   amount integer not null default 0,
   received_amount integer not null default 0,
   payment_status text not null default '未收款',
@@ -21,6 +22,7 @@ create table if not exists public.commission_orders (
   refund_amount integer not null default 0,
   exception_previous_status text,
   notes text not null default '',
+  calendar_color text not null default '',
   fee_mode text not null default 'standard',
   fee_rate numeric,
   mhs_project_quoted_amount integer not null default 0,
@@ -54,6 +56,12 @@ add column if not exists fee_mode text not null default 'standard';
 
 alter table public.commission_orders
 add column if not exists mhs_project_quoted_amount integer not null default 0;
+
+alter table public.commission_orders
+add column if not exists priority_rate numeric not null default 0;
+
+alter table public.commission_orders
+add column if not exists calendar_color text not null default '';
 
 create or replace function public.set_updated_at()
 returns trigger
